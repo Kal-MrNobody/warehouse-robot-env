@@ -1,0 +1,57 @@
+name: warehouse-robot-env
+env_id: warehouse-robot-env
+version: "0.1.0"
+description: >
+  2D grid warehouse simulator where AI agents control robots to
+  fulfill pick-and-place orders. Trains agents to avoid collisions,
+  wrong picks, infinite loops, and battery drain before deployment
+  to real warehouse hardware. Inspired by Amazon/Flipkart robotics.
+author: KalX0o
+license: MIT
+tags:
+  - warehouse
+  - robotics
+  - real-world
+  - multi-step
+  - pick-and-place
+  - battery-management
+  - collision-avoidance
+
+tasks:
+  - id: task1_easy
+    description: "Single item pickup and delivery, clear path"
+    difficulty: easy
+    max_steps: 25
+  - id: task2_medium
+    description: "Three items, static obstacles, battery management"
+    difficulty: medium
+    max_steps: 60
+  - id: task3_hard
+    description: "Two robots, four items (two priority), collision avoidance"
+    difficulty: hard
+    max_steps: 100
+
+action_space:
+  type: discrete
+  values:
+    - move_north
+    - move_south
+    - move_east
+    - move_west
+    - pick_item
+    - place_item
+    - charge
+    - done
+
+observation_space:
+  type: text
+  description: "ASCII grid + robot status + order status + valid actions"
+
+reward:
+  type: shaped
+  range: [-2.0, 2.0]
+  grader_score_range: [0.0, 1.0]
+
+server:
+  port: 7860
+  health_endpoint: /health
