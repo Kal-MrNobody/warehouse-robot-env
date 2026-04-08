@@ -7,7 +7,7 @@ except ImportError:
     from server.environment import WarehouseEnvironment
     from models import WarehouseAction, WarehouseObservation
 
-# Pass CLASS not instance. create_app handles instantiation internally.
+# create_app already registers /health, /reset, /step, /state, /schema, /ws
 app = create_app(
     WarehouseEnvironment,
     WarehouseAction,
@@ -16,14 +16,5 @@ app = create_app(
     max_concurrent_envs=10,
 )
 
-# Required by hackathon: /health endpoint must return 200
-from fastapi import FastAPI
-
-
-@app.get("/health")
-def health():
-    return {"status": "healthy", "service": "warehouse-robot-env"}
-
-
-# Server runs on port 7860 (HuggingFace Spaces requirement)
+# Server listens on port 7860 (HuggingFace Spaces requirement)
 # Start with: uvicorn server.app:app --host 0.0.0.0 --port 7860

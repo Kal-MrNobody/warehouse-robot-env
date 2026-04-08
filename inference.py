@@ -1,47 +1,44 @@
 """
-Baseline inference agent for the Warehouse Robot RL environment.
+inference.py — Baseline agent for the Warehouse Robot RL environment.
 
-Connects to the running server via WebSocket, runs all three tasks,
-and prints structured logs that the evaluator parses.
+Runs all three tasks sequentially and emits structured [START], [STEP],
+and [END] log lines to stdout for automated evaluation.
 
-Required env vars:
-    API_BASE_URL  – LLM endpoint          (default: HF router)
-    MODEL_NAME    – model identifier       (default: Llama-3.1-8B-Instruct)
-    HF_TOKEN      – Hugging Face API key
+Environment variables:
+    API_BASE_URL  LLM endpoint          (default: HuggingFace router)
+    MODEL_NAME    Model identifier       (default: Llama-3.1-8B-Instruct)
+    HF_TOKEN      HuggingFace API key
+    ENV_URL       Environment server URL (default: http://localhost:7860)
 """
 
+import json
 import os
 import sys
-import json
-import time
 
 from openai import OpenAI
 from client import WarehouseEnv
 from models import WarehouseAction
 
-# ── configuration ────────────────────────────────────────────────────
+# ── Config from environment variables ────────────────────────────────
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
 
-if not HF_TOKEN:
-    print("WARNING: HF_TOKEN not set – LLM calls will fail.", file=sys.stderr)
-
-llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "dummy")
 
 SYSTEM_PROMPT = (
     "You are a warehouse robot controller. "
-    "Read the ASCII warehouse grid and output EXACTLY ONE action word.\n\n"
+    "Read the ASCII warehouse grid carefully and output EXACTLY ONE action word — nothing else.\n\n"
     "Valid actions: move_north  move_south  move_east  move_west  "
     "pick_item  place_item  charge  done\n\n"
     "Strategy:\n"
-    "- Navigate toward the nearest incomplete order item.\n"
-    "- When on the item cell and item is in the order -> pick_item.\n"
-    "- After picking, navigate to the correct drop zone -> place_item.\n"
-    "- If battery < 15% and on charger cell -> charge.\n"
-    "- When all items delivered -> done.\n"
-    "- Avoid walls and other robots."
+    "- Navigate toward the nearest item listed in ORDER that hasn't been delivered.\n"
+    "- When standing on an item cell and that SKU is in the order -> pick_item.\n"
+    "- After picking, navigate to the correct ZONE shown in the order -> place_item.\n"
+    "- If battery < 15% and currently on a charger cell [C] -> charge.\n"
+    "- If all items are delivered -> done.\n"
+    "- Never move into walls (W cells)."
 )
 
 VALID_ACTIONS = [
@@ -50,8 +47,8 @@ VALID_ACTIONS = [
 ]
 
 
-def query_llm(observation_text: str) -> str:
-    """Send the grid observation to the LLM and extract a valid action."""
+def get_action(observation_text: str) -> str:
+    """Query the LLM and extract a valid action string."""
     for attempt in range(2):
         try:
             response = llm.chat.completions.create(
@@ -68,84 +65,88 @@ def query_llm(observation_text: str) -> str:
                 if action in raw:
                     return action
         except Exception as exc:
-            print(f"  LLM error (attempt {attempt + 1}): {exc}", file=sys.stderr)
+            print(f"LLM error (attempt {attempt + 1}): {exc}", file=sys.stderr, flush=True)
     return "move_north"
 
 
-def run_task(task_id: str, max_steps: int, seed: int = 42) -> dict:
-    """Run a single episode and return summary dict."""
+def run_task(task_id: str, max_steps: int, seed: int = 42) -> float:
+    """Run one episode and return the grader score."""
+
     with WarehouseEnv(base_url=ENV_URL).sync() as env:
         result = env.reset(task_id=task_id, seed=seed)
 
-        # ── [START] log ──
-        start_payload = {
-            "task_id": task_id,
-            "seed": seed,
-            "max_steps": max_steps,
-            "items_remaining": result.observation.items_remaining,
-        }
-        print(f"[START] {json.dumps(start_payload)}", flush=True)
+        # [START] — emitted once per episode
+        print(
+            "[START] " + json.dumps({
+                "task_id": task_id,
+                "seed": seed,
+                "max_steps": max_steps,
+                "items_remaining": result.observation.items_remaining,
+            }),
+            flush=True,
+        )
 
-        total_reward = 0.0
-        final_step = 0
+        cumulative_reward = 0.0
 
-        for step_idx in range(max_steps):
-            action = query_llm(result.observation.grid_text)
+        for step_num in range(1, max_steps + 1):
+            action = get_action(result.observation.grid_text)
             result = env.step(WarehouseAction(action=action))
 
-            reward = result.observation.reward if result.observation.reward else 0.0
-            total_reward += reward
-            final_step = step_idx + 1
+            step_reward = result.observation.reward or 0.0
+            cumulative_reward += step_reward
 
-            # ── [STEP] log ──
-            step_payload = {
-                "task_id": task_id,
-                "step": final_step,
-                "action": action,
-                "reward": round(reward, 4),
-                "total_reward": round(total_reward, 4),
-                "done": result.done,
-                "items_remaining": result.observation.items_remaining,
-            }
-            print(f"[STEP] {json.dumps(step_payload)}", flush=True)
+            # [STEP] — emitted after each action
+            print(
+                "[STEP] " + json.dumps({
+                    "task_id": task_id,
+                    "step": step_num,
+                    "action": action,
+                    "reward": round(step_reward, 4),
+                    "cumulative_reward": round(cumulative_reward, 4),
+                    "items_remaining": result.observation.items_remaining,
+                    "done": result.done,
+                }),
+                flush=True,
+            )
 
             if result.done:
                 break
 
         score = result.observation.grader_score
 
-        # ── [END] log ──
-        end_payload = {
-            "task_id": task_id,
-            "score": round(score, 4),
-            "total_reward": round(total_reward, 4),
-            "steps_used": final_step,
-            "max_steps": max_steps,
-            "done_reason": result.observation.done_reason,
-        }
-        print(f"[END] {json.dumps(end_payload)}", flush=True)
+        # [END] — emitted once per episode
+        print(
+            "[END] " + json.dumps({
+                "task_id": task_id,
+                "score": round(score, 4),
+                "cumulative_reward": round(cumulative_reward, 4),
+                "steps_taken": result.observation.steps_taken,
+                "max_steps": max_steps,
+                "done_reason": result.observation.done_reason,
+            }),
+            flush=True,
+        )
 
-        return end_payload
+    return score
 
 
 def main():
     tasks = [
-        ("task1_easy", 25),
+        ("task1_easy",   25),
         ("task2_medium", 60),
-        ("task3_hard", 100),
+        ("task3_hard",  100),
     ]
-    results = {}
 
-    for task_id, steps in tasks:
-        summary = run_task(task_id, steps)
-        results[task_id] = summary["score"]
+    scores = {}
+    for task_id, max_steps in tasks:
+        scores[task_id] = run_task(task_id, max_steps)
 
-    # Final summary
-    avg_score = sum(results.values()) / len(results)
-    print("\n--- Final Results ---")
-    for tid, sc in results.items():
-        print(f"  {tid:<20} {sc:.4f}")
-    print(f"  {'average':<20} {avg_score:.4f}")
+    # Summary
+    avg = sum(scores.values()) / len(scores)
+    print("\n--- Results ---", flush=True)
+    for tid, sc in scores.items():
+        print(f"  {tid:<20} {sc:.4f}", flush=True)
+    print(f"  {'average':<20} {avg:.4f}", flush=True)
 
 
 if __name__ == "__main__":
