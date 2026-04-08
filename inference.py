@@ -120,7 +120,7 @@ def run_evaluation():
                     is_done = obs.done
                     final_score = obs.grader_score
                     reward_val = round(step_result.reward, 2)
-                    reward_history.append(str(reward_val))
+                    reward_history.append(f"{reward_val:.2f}")
                     
                     # ── [STEP] LOG ──
                     print(f"[STEP] step={steps_taken} action={action_str} reward={reward_val:.2f} done={str(is_done).lower()} error=null")
@@ -131,7 +131,7 @@ def run_evaluation():
                         break
 
         except Exception as e:
-            print(f"[STEP] step={steps_taken+1} action=error reward=0.00 done=true error=\"{e}\"")
+            print(f"[STEP] step={steps_taken+1} action=error reward=0.00 done=true error={e}")
         finally:
             rewards_str = ",".join(reward_history) if reward_history else "0.00"
             # ── [END] LOG ──
