@@ -1,39 +1,12 @@
-name: warehouse-robot-env
-env_id: warehouse-robot-env
-version: "0.1.0"
-description: >
-  A 2D grid-based warehouse simulator for training AI agents to pick and
-  deliver items using reinforcement learning. Robots must navigate around
-  shelves and walls, manage battery, avoid collisions, and complete orders
-  before the step budget runs out. Inspired by real logistics challenges
-  at companies running large-scale warehouse automation.
-author: KalX0o
-license: MIT
-tags:
-  - warehouse
-  - robotics
-  - logistics
-  - reinforcement-learning
-  - pick-and-place
-  - battery-management
-  - collision-avoidance
-  - multi-step
+name: shatterdome-logistics-env
+version: "1.0.0"
+description: "Pan Pacific Defense Corps Shatterdome environment where Jaeger agents must secure and deploy Plasma Cores into Jaeger Bays."
 
-tasks:
-  - id: task1_easy
-    description: "Single item pickup and delivery on a clear 10x10 grid"
-    difficulty: easy
-    max_steps: 25
+author: "PPDC Engineering"
 
-  - id: task2_medium
-    description: "Three items to deliver, static obstacles, battery drains each step"
-    difficulty: medium
-    max_steps: 60
-
-  - id: task3_hard
-    description: "Two robots, four items (two priority), must avoid robot-robot collisions"
-    difficulty: hard
-    max_steps: 100
+server:
+  port: 7860
+  health_endpoint: /health
 
 action_space:
   type: discrete
@@ -42,20 +15,24 @@ action_space:
     - move_south
     - move_east
     - move_west
-    - pick_item
-    - place_item
-    - charge
+    - load_core
+    - deploy_core
+    - recharge
     - done
 
 observation_space:
-  type: text
-  description: "ASCII grid showing the warehouse + robot status + order list + valid actions"
+  type: dict
+  schema_endpoint: /schema
 
-reward:
-  type: shaped
-  range: [-2.0, 2.0]
-  grader_score_range: [0.0, 1.0]
+tasks:
+  - id: task1_easy
+    description: "Standard single core load. F-Stop conditions clear."
+    max_steps: 25
 
-server:
-  port: 7860
-  health_endpoint: /health
+  - id: task2_medium
+    description: "Multi-core load. Internal structural hazards. Reactor decay active."
+    max_steps: 60
+
+  - id: task3_hard
+    description: "Dual Jaeger deployment. Priority cores active. High reactor decay and severe collision risks."
+    max_steps: 100

@@ -1,169 +1,141 @@
-"""
-inference.py — Baseline agent for the Warehouse Robot RL environment.
-
-Runs all three tasks and emits structured [START], [STEP], [END] logs.
-
-Environment variables:
-    API_BASE_URL  LLM endpoint          (default: HF router)
-    MODEL_NAME    Model identifier       (default: Llama-3.1-8B-Instruct)
-    HF_TOKEN      HuggingFace API key
-    ENV_URL       Server URL             (default: http://localhost:7860)
-"""
-
 import os
+import time
+import json
+import uuid
 import sys
-from typing import List, Optional
-
+import io
 from openai import OpenAI
-from client import WarehouseEnv
-from models import WarehouseAction
 
-# ── Config ───────────────────────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+# Force UTF-8 stdout mapping for Windows
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+from client import ShatterdomeClient
+from models import ShatterdomeAction
+
+# ──────────────────────────────────────────────────────────
+# CONFIGURATION
+# ──────────────────────────────────────────────────────────
+
 ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
-BENCHMARK = "warehouse-robot-env"
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "dummy")
+if not HF_TOKEN:
+    print("Warning: HF_TOKEN environment variable is not set. Inference may fail if API requires auth.")
 
-SYSTEM_PROMPT = (
-    "You are a warehouse robot controller. "
-    "Read the ASCII warehouse grid and output EXACTLY ONE action word — nothing else.\n\n"
-    "Valid actions: move_north  move_south  move_east  move_west  "
-    "pick_item  place_item  charge  done\n\n"
-    "Strategy:\n"
-    "- Navigate toward the nearest item listed in ORDER that hasn't been delivered.\n"
-    "- When standing on an item cell and that SKU is in the order -> pick_item.\n"
-    "- After picking, navigate to the correct ZONE shown in the order -> place_item.\n"
-    "- If battery < 15% and currently on a charger cell [C] -> charge.\n"
-    "- If all items are delivered -> done.\n"
-    "- Never move into walls (W cells)."
+llm = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=HF_TOKEN or "dummy-key-for-local"
 )
 
-VALID_ACTIONS = [
-    "move_north", "move_south", "move_east", "move_west",
-    "pick_item", "place_item", "charge", "done",
-]
+# ──────────────────────────────────────────────────────────
+# AGENT PROMPT
+# ──────────────────────────────────────────────────────────
 
+SYSTEM_PROMPT = """
+You are the AI co-pilot for a PPDC Jaeger in the Shatterdome.
+You receive a CONN-POD HUD which shows the layout of the facility.
 
-# ── Structured stdout logging ────────────────────────────────────────
+[J0] is your Jaeger (if empty). [J0*] means your Jaeger is carrying a Plasma Core.
+[C:01] is a Plasma Core on the floor.
+[B:A] is Jaeger Bay A.
+[R] is a Reactor Charger.
+'W' are impassable walls.
 
-def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+Your objective: Secure Plasma Cores and deploy them to the designated Jaeger Bays as listed in your DIRECTIVES.
+Beware: Your actions drain the Jaeger's reactor. If it hits 0%, you fail. Use [R] to recharge.
+Do NOT crash into walls or other Jaegers.
 
+VALID COMMANDS:
+move_north, move_south, move_east, move_west, load_core, deploy_core, recharge, done
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    done_val = str(done).lower()
-    error_val = error if error else "null"
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
-        flush=True,
-    )
+Evaluate the grid, look at your position, look at the nearest Core or Bay, and decide the ONE single command to execute.
+Output NOTHING ELSE except the exact command word.
+"""
 
-
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
-        flush=True,
-    )
-
-
-# ── LLM call ─────────────────────────────────────────────────────────
-
-def get_action(observation_text: str) -> str:
-    """Query the LLM and return a valid action string."""
-    for attempt in range(2):
-        try:
-            response = llm.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": observation_text},
-                ],
-                max_tokens=10,
-                temperature=0.0,
-            )
-            raw = response.choices[0].message.content.strip().lower()
-            for action in VALID_ACTIONS:
-                if action in raw:
-                    return action
-        except Exception as exc:
-            print(f"LLM error (attempt {attempt + 1}): {exc}", file=sys.stderr, flush=True)
+def extract_action(text: str) -> str:
+    valid_actions = {
+        "move_north", "move_south", "move_east", "move_west",
+        "load_core", "deploy_core", "recharge", "done"
+    }
+    text = text.lower()
+    for action in valid_actions:
+        if action in text:
+            return action
     return "move_north"
 
-
-# ── Episode runner ───────────────────────────────────────────────────
-
-def run_task(task_id: str, max_steps: int, seed: int = 42) -> float:
-    """Run one episode, emit structured logs, return grader score."""
-
-    rewards: List[float] = []
-    steps_taken = 0
-    score = 0.0
-    success = False
-
-    log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
-
+def get_action(hud_text: str) -> str:
     try:
-        with WarehouseEnv(base_url=ENV_URL).sync() as env:
-            result = env.reset(task_id=task_id, seed=seed)
+        response = llm.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": hud_text},
+            ],
+            max_tokens=10,
+            temperature=0.0,
+            timeout=10.0
+        )
+        content = response.choices[0].message.content.strip()
+        return extract_action(content)
+    except Exception as e:
+        print(f"LLM Error: {e}", file=sys.stderr)
+        return "move_north"
 
-            for step_num in range(1, max_steps + 1):
-                if result.done:
-                    break
+# ──────────────────────────────────────────────────────────
+# EVALUATION LOOP
+# ──────────────────────────────────────────────────────────
 
-                action = get_action(result.observation.grid_text)
-                result = env.step(WarehouseAction(action=action))
+def run_evaluation():
+    tasks = ["task1_easy", "task2_medium", "task3_hard"]
 
-                step_reward = result.observation.reward or 0.0
-                done = result.done
-                error = None
+    for task_id in tasks:
+        # ── [START] LOG ──
+        print(f"[START] task={task_id} env=shatterdome-logistics-env model={MODEL_NAME}")
 
-                rewards.append(step_reward)
-                steps_taken = step_num
+        success = "false"
+        steps_taken = 0
+        final_score = 0.0
+        reward_history = []
+        is_done = False
 
-                log_step(
-                    step=step_num,
-                    action=action,
-                    reward=step_reward,
-                    done=done,
-                    error=error,
-                )
+        try:
+            with ShatterdomeClient(base_url=ENV_URL).sync() as env:
+                result = env.reset(task_id=task_id, seed=42)
+                
+                obs = result.observation
+                is_done = obs.done
 
-                if done:
-                    break
+                while not is_done:
+                    steps_taken += 1
+                    
+                    hud_display = obs.hud_display
+                    action_str = get_action(hud_display)
+                    
+                    action_payload = ShatterdomeAction(action=action_str)
+                    step_result = env.step(action_payload)
+                    
+                    obs = step_result.observation
+                    is_done = obs.done
+                    final_score = obs.grader_score
+                    reward_val = round(step_result.reward, 2)
+                    reward_history.append(str(reward_val))
+                    
+                    # ── [STEP] LOG ──
+                    print(f"[STEP] step={steps_taken} action={action_str} reward={reward_val:.2f} done={str(is_done).lower()} error=null")
+                    
+                    if is_done:
+                        if final_score > 0.0 and obs.cores_remaining == 0:
+                            success = "true"
+                        break
 
-            score = result.observation.grader_score
-            score = min(max(score, 0.0), 1.0)
-            success = score > 0.0
-
-    finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-
-    return score
-
-
-# ── Main ─────────────────────────────────────────────────────────────
-
-def main():
-    tasks = [
-        ("task1_easy",   25),
-        ("task2_medium", 60),
-        ("task3_hard",  100),
-    ]
-
-    scores = {}
-    for task_id, max_steps in tasks:
-        scores[task_id] = run_task(task_id, max_steps)
-
-    avg = sum(scores.values()) / len(scores)
-    print("\n--- Results ---", flush=True)
-    for tid, sc in scores.items():
-        print(f"  {tid:<20} {sc:.4f}", flush=True)
-    print(f"  {'average':<20} {avg:.4f}", flush=True)
-
+        except Exception as e:
+            print(f"[STEP] step={steps_taken+1} action=error reward=0.00 done=true error=\"{e}\"")
+        finally:
+            rewards_str = ",".join(reward_history) if reward_history else "0.00"
+            # ── [END] LOG ──
+            print(f"[END] success={success} steps={steps_taken} score={final_score:.2f} rewards={rewards_str}")
 
 if __name__ == "__main__":
-    main()
+    run_evaluation()

@@ -1,447 +1,188 @@
-from typing import Optional, Any
-from uuid import uuid4
-
 from openenv.core.env_server import Environment
-
 try:
-    from ..models import WarehouseAction, WarehouseObservation, WarehouseState
-    from ..warehouse.grid import WarehouseGrid
-    from ..warehouse.renderer import render_grid
-    from ..tasks.graders import Task1Grader, Task2Grader, Task3Grader
+    from models import ShatterdomeAction, ShatterdomeObservation, ShatterdomeState
 except ImportError:
-    from models import WarehouseAction, WarehouseObservation, WarehouseState
-    from warehouse.grid import WarehouseGrid
-    from warehouse.renderer import render_grid
-    from tasks.graders import Task1Grader, Task2Grader, Task3Grader
+    from ..models import ShatterdomeAction, ShatterdomeObservation, ShatterdomeState
 
+from shatterdome.grid import ShatterdomeGrid
+from shatterdome.renderer import HUD_Renderer
 
-VALID_ACTIONS = {
-    "move_north", "move_south", "move_east", "move_west",
-    "pick_item", "place_item", "charge", "done",
-}
+import uuid
 
-MOVEMENT_ACTIONS = {"move_north", "move_south", "move_east", "move_west"}
-
-
-class WarehouseEnvironment(Environment):
-    """
-    OpenEnv-compliant warehouse robot environment.
-    Manages a 2D grid warehouse where robots pick and deliver items.
-    """
-    SUPPORTS_CONCURRENT_SESSIONS = True
-
-    GRADERS = {
+# Load graders dynamically
+def load_graders():
+    try:
+        from tasks.graders import Task1Grader, Task2Grader, Task3Grader
+    except ImportError:
+        from ..tasks.graders import Task1Grader, Task2Grader, Task3Grader
+    return {
         "task1_easy": Task1Grader,
         "task2_medium": Task2Grader,
         "task3_hard": Task3Grader,
     }
 
-    def __init__(self):
-        super().__init__()
+class ShatterdomeEnvironment(Environment):
+    SUPPORTS_CONCURRENT_SESSIONS = True
+
+    VALID_ACTIONS = {
+        "move_north", "move_south", "move_east", "move_west",
+        "load_core", "deploy_core", "recharge", "done"
+    }
+
+    GRADERS = load_graders()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._grid = None
         self._state = None
+        self._session_id = str(uuid.uuid4())
 
-    def reset(
-        self,
-        seed: Optional[int] = None,
-        episode_id: Optional[str] = None,
-        **kwargs: Any,
-    ) -> WarehouseObservation:
-        """
-        Initialize a new episode for the given task.
-        task_id is passed via kwargs (e.g., reset(task_id="task1_easy")).
-        """
-        task_id = kwargs.get("task_id", "task1_easy")
-        effective_seed = seed if seed is not None else 42
-
-        # 1. Load grid from task definition
-        self._grid = WarehouseGrid.from_task(task_id, effective_seed)
-
-        # 2. Reset episode history
+    def reset(self, task_id: str = "task1_easy", seed: int = 42) -> ShatterdomeObservation:
+        self._grid = ShatterdomeGrid.from_task(task_id, seed)
+        self._state = ShatterdomeState(task_id=task_id)
         self._grid.episode_history = []
-
-        # 3. Create new WarehouseState with fresh uuid4 episode_id
-        eid = episode_id if episode_id else str(uuid4())
-        self._state = WarehouseState(
-            episode_id=eid,
-            step_count=0,
-            task_id=task_id,
-            total_reward=0.0,
-            items_delivered=0,
-            collisions=0,
-            wrong_picks=0,
-            grader_score=0.0,
-            battery_deaths=0,
-        )
-
-        # 4. Return initial observation
         return self._build_observation(reward=None, done=False)
 
-    def step(
-        self,
-        action: WarehouseAction,
-        timeout_s: Optional[float] = None,
-        **kwargs: Any,
-    ) -> WarehouseObservation:
-        """
-        Execute one action and return the resulting observation.
-        All reward computation happens here.
-        """
-        action_str = action.action.strip().lower()
-        reward = 0.0
-        done = False
-        done_reason = None
-
-        # We operate on robot 0 by default (multi-robot: actions would need robot_id)
-        # For task3 with 2 robots, we alternate or use robot 0
-        # Simplified: always control robot 0 (agent controls primary robot)
-        robot_id = 0
-        robot = self._grid.robots[robot_id]
-
-        # ── 1. Validate action string ──
-        if action_str not in VALID_ACTIONS:
-            reward -= 0.10
-            self._grid.cumulative_penalty += 0.10
-            self._grid.episode_history.append({
-                "step": self._state.step_count,
-                "event": "invalid_action",
-                "action": action_str,
-            })
-            # Still increment step count for invalid actions
-            self._state.step_count += 1
-            self._grid.steps_taken += 1
-            self._state.total_reward += reward
-
-            # Check step limit
-            if self._state.step_count >= self._grid.max_steps:
-                done = True
-                done_reason = "step_limit_exceeded"
-                penalty = 0.10 * self._grid.items_remaining_count()
-                reward -= penalty
-                self._state.total_reward += (-penalty)
-                self._grid.cumulative_penalty += penalty
-                self._run_grader()
-
-            return self._build_observation(reward, done, done_reason)
-
-        # ── 2. Movement actions ──
-        if action_str in MOVEMENT_ACTIONS:
-            # Check if robot battery is dead
-            if robot.battery <= 0:
-                reward -= 0.40
-                self._grid.cumulative_penalty += 0.40
-                self._state.battery_deaths += 1
-                self._grid.episode_history.append({
-                    "step": self._state.step_count,
-                    "event": "battery_dead_move",
-                    "robot_id": robot_id,
-                })
-            else:
-                # Compute target for distance shaping
-                target_before = self._grid.get_current_target(robot_id)
-                dist_before = None
-                if target_before:
-                    dist_before = self._grid.manhattan_distance(
-                        robot.position, target_before
-                    )
-
-                # Compute candidate position
-                candidate = robot.move(action_str)
-
-                # Check wall collision
-                if self._grid.is_wall(candidate[0], candidate[1]):
-                    reward -= 0.20
-                    self._grid.cumulative_penalty += 0.20
-                    self._state.collisions += 1
-                    self._grid.episode_history.append({
-                        "step": self._state.step_count,
-                        "event": "collision_wall",
-                        "robot_id": robot_id,
-                        "position": list(robot.position),
-                    })
-                else:
-                    # Check robot-robot collision (Task 3)
-                    if self._grid.is_occupied_by_other_robot(candidate, robot_id):
-                        reward -= 0.50
-                        self._grid.cumulative_penalty += 0.50
-                        self._grid.episode_history.append({
-                            "step": self._state.step_count,
-                            "event": "collision_robot",
-                            "robot_id": robot_id,
-                            "position": list(candidate),
-                        })
-                        # Robot still moves (both occupy same cell = collision)
-                        robot.position = candidate
-                    else:
-                        # Valid move
-                        robot.position = candidate
-
-                    # Distance shaping reward
-                    target_after = self._grid.get_current_target(robot_id)
-                    if target_before and target_after:
-                        dist_after = self._grid.manhattan_distance(
-                            robot.position, target_after
-                        )
-                        if dist_before is not None:
-                            if dist_after < dist_before:
-                                reward += 0.05
-                            elif dist_after > dist_before:
-                                reward -= 0.05
-                                self._grid.cumulative_penalty += 0.05
-
-                # Drain battery
-                if self._grid.battery_drain > 0:
-                    battery_died = robot.drain_battery(self._grid.battery_drain)
-                    if battery_died:
-                        reward -= 0.40
-                        self._grid.cumulative_penalty += 0.40
-                        self._state.battery_deaths += 1
-                        self._grid.episode_history.append({
-                            "step": self._state.step_count,
-                            "event": "battery_died",
-                            "robot_id": robot_id,
-                        })
-
-        # ── 3. pick_item ──
-        elif action_str == "pick_item":
-            if robot.battery <= 0:
-                reward -= 0.40
-                self._grid.cumulative_penalty += 0.40
-                self._state.battery_deaths += 1
-                self._grid.episode_history.append({
-                    "step": self._state.step_count,
-                    "event": "battery_dead_action",
-                    "robot_id": robot_id,
-                })
-            elif robot.is_carrying():
-                reward -= 0.10
-                self._grid.cumulative_penalty += 0.10
-                self._grid.episode_history.append({
-                    "step": self._state.step_count,
-                    "event": "pick_already_carrying",
-                    "robot_id": robot_id,
-                })
-            else:
-                item_sku = self._grid.get_item_at(robot.position)
-                if item_sku is None:
-                    reward -= 0.10
-                    self._grid.cumulative_penalty += 0.10
-                    self._grid.episode_history.append({
-                        "step": self._state.step_count,
-                        "event": "pick_no_item",
-                        "robot_id": robot_id,
-                        "position": list(robot.position),
-                    })
-                elif not self._grid.is_sku_in_order(item_sku):
-                    # Picked item NOT in current order
-                    reward -= 0.30
-                    self._grid.cumulative_penalty += 0.30
-                    self._state.wrong_picks += 1
-                    robot.pick_up(item_sku)
-                    self._grid.remove_item(robot.position)
-                    self._grid.episode_history.append({
-                        "step": self._state.step_count,
-                        "event": "wrong_pick",
-                        "robot_id": robot_id,
-                        "sku": item_sku,
-                    })
-                else:
-                    # Correct pick
-                    reward += 0.20
-                    robot.pick_up(item_sku)
-                    self._grid.remove_item(robot.position)
-                    self._grid.episode_history.append({
-                        "step": self._state.step_count,
-                        "event": "correct_pick",
-                        "robot_id": robot_id,
-                        "sku": item_sku,
-                    })
-
-        # ── 4. place_item ──
-        elif action_str == "place_item":
-            if robot.battery <= 0:
-                reward -= 0.40
-                self._grid.cumulative_penalty += 0.40
-                self._state.battery_deaths += 1
-                self._grid.episode_history.append({
-                    "step": self._state.step_count,
-                    "event": "battery_dead_action",
-                    "robot_id": robot_id,
-                })
-            elif not robot.is_carrying():
-                reward -= 0.10
-                self._grid.cumulative_penalty += 0.10
-                self._grid.episode_history.append({
-                    "step": self._state.step_count,
-                    "event": "place_not_carrying",
-                    "robot_id": robot_id,
-                })
-            else:
-                zone_name = self._grid.get_zone_name_at(robot.position)
-                if zone_name is None:
-                    reward -= 0.10
-                    self._grid.cumulative_penalty += 0.10
-                    self._grid.episode_history.append({
-                        "step": self._state.step_count,
-                        "event": "place_not_on_zone",
-                        "robot_id": robot_id,
-                        "position": list(robot.position),
-                    })
-                else:
-                    carried_sku = robot.carrying
-                    expected_zone = self._grid.get_zone_for_sku(carried_sku)
-
-                    if expected_zone and zone_name == expected_zone:
-                        # Correct delivery
-                        reward += 0.50
-                        robot.drop_item()
-                        order_item = self._grid.get_order_item(carried_sku)
-                        if order_item:
-                            is_priority = order_item.priority
-                            order_item.done = True
-                        else:
-                            is_priority = False
-                        self._state.items_delivered += 1
-                        self._grid.episode_history.append({
-                            "step": self._state.step_count,
-                            "event": "correct_delivery",
-                            "robot_id": robot_id,
-                            "sku": carried_sku,
-                            "zone": zone_name,
-                            "priority": is_priority,
-                        })
-                    else:
-                        # Wrong drop zone — item is lost
-                        reward -= 0.30
-                        self._grid.cumulative_penalty += 0.30
-                        robot.drop_item()
-                        self._grid.episode_history.append({
-                            "step": self._state.step_count,
-                            "event": "wrong_delivery",
-                            "robot_id": robot_id,
-                            "sku": carried_sku,
-                            "zone": zone_name,
-                            "expected_zone": expected_zone,
-                        })
-
-        # ── 5. charge ──
-        elif action_str == "charge":
-            if self._grid.is_charger(robot.position[0], robot.position[1]):
-                robot.charge_battery(30.0)
-                reward += 0.05
-                self._grid.episode_history.append({
-                    "step": self._state.step_count,
-                    "event": "charged",
-                    "robot_id": robot_id,
-                    "battery": robot.battery,
-                })
-            else:
-                # Not on charger cell — treat as wasted action
-                reward -= 0.10
-                self._grid.cumulative_penalty += 0.10
-                self._grid.episode_history.append({
-                    "step": self._state.step_count,
-                    "event": "charge_not_on_charger",
-                    "robot_id": robot_id,
-                })
-
-        # ── 6. done ──
-        elif action_str == "done":
-            done = True
-            done_reason = "agent_called_done"
-            self._grid.episode_history.append({
-                "step": self._state.step_count,
-                "event": "agent_done",
-                "robot_id": robot_id,
-            })
-
-        # ── 7. Post-action processing ──
-        self._state.step_count += 1
-        self._grid.steps_taken += 1
-        self._state.total_reward += reward
-
-        # Check if all orders complete
-        if not done and self._grid.all_orders_complete():
-            done = True
-            done_reason = "all_orders_complete"
-            reward += 1.00  # bonus
-            self._state.total_reward += 1.00
-            self._grid.episode_history.append({
-                "step": self._state.step_count,
-                "event": "all_orders_complete",
-            })
-
-        # Check step limit
-        if not done and self._state.step_count >= self._grid.max_steps:
-            done = True
-            done_reason = "step_limit_exceeded"
-            remaining_penalty = 0.10 * self._grid.items_remaining_count()
-            reward -= remaining_penalty
-            self._state.total_reward -= remaining_penalty
-            self._grid.cumulative_penalty += remaining_penalty
-            self._grid.episode_history.append({
-                "step": self._state.step_count,
-                "event": "step_limit_exceeded",
-                "remaining_items": self._grid.items_remaining_count(),
-            })
-
-        # If done, run grader
-        if done:
-            self._run_grader()
-
-        return self._build_observation(reward, done, done_reason)
-
-    def _run_grader(self) -> None:
-        """Run the appropriate grader and store the score."""
-        grader_cls = self.GRADERS.get(self._state.task_id)
-        if grader_cls:
-            grader = grader_cls()
-            score = grader.grade(
-                self._grid.episode_history,
-                self._grid,
-                self._state,
-            )
-            self._state.grader_score = max(0.0, min(1.0, score))
-
-    @property
-    def state(self) -> WarehouseState:
+    def state(self) -> ShatterdomeState:
         return self._state
 
-    def _build_observation(self, reward, done, done_reason=None) -> WarehouseObservation:
-        """
-        Constructs a full WarehouseObservation from current grid state.
-        """
-        grid_text = render_grid(self._grid)
-
-        robots_list = []
-        for rid in sorted(self._grid.robots.keys()):
-            robots_list.append(self._grid.robots[rid].to_dict())
-
-        order_list = []
-        for item in self._grid.order:
-            order_list.append({
-                "sku": item.sku,
-                "deliver_to": item.deliver_to,
-                "priority": item.priority,
-                "done": item.done,
-            })
-
-        return WarehouseObservation(
-            done=done,
+    def _build_observation(self, reward: float = None, done: bool = False) -> ShatterdomeObservation:
+        score = self._state.grader_score if done else 0.0
+        
+        jaegers_data = [j.to_dict() for j in self._grid.jaegers.values()]
+        active_directives = [{"core_id": d.core_id, "deploy_to": d.deploy_to, "done": d.done} for d in self._grid.directives]
+        
+        return ShatterdomeObservation(
+            hud_display=HUD_Renderer.render(self._grid),
+            jaegers=jaegers_data,
+            active_directives=active_directives,
+            cores_remaining=self._grid.cores_remaining_count(),
+            cycles_elapsed=self._grid.steps_taken,
+            max_cycles=self._grid.max_steps,
+            cumulative_stress=round(self._grid.cumulative_stress, 2),
+            grader_score=score,
             reward=reward,
-            metadata={
-                "episode_id": self._state.episode_id,
-                "task_id": self._state.task_id,
-                "total_reward": round(self._state.total_reward, 3),
-            },
-            grid_text=grid_text,
-            robots=robots_list,
-            current_order=order_list,
-            items_remaining=self._grid.items_remaining_count(),
-            steps_taken=self._grid.steps_taken,
-            max_steps=self._grid.max_steps,
-            cumulative_penalty=round(self._grid.cumulative_penalty, 3),
-            done_reason=done_reason,
-            task_id=self._state.task_id,
-            grader_score=self._state.grader_score,
+            done=done
         )
+
+    def step(self, action: ShatterdomeAction) -> ShatterdomeObservation:
+        cmd = action.action.lower()
+        reward = 0.0
+        done = False
+
+        if cmd not in self.VALID_ACTIONS:
+            reward -= 0.10
+            self._grid.episode_history.append({"event": "invalid_command", "cmd": cmd})
+            return self._finalize_step(reward, done)
+
+        if cmd == "done":
+            done = True
+            return self._finalize_step(reward, done)
+
+        # For multi-agent tasks, we default to Jaeger 0 logic for simplicity,
+        # but in hard task, we could alternate or let action spec include jaeger_id.
+        # Since hackathon baseline is single string action, we control Jaeger 0.
+        j_id = 0
+        jaeger = self._grid.jaegers[j_id]
+
+        if jaeger.reactor_power <= 0:
+            reward -= 0.40
+            self._grid.episode_history.append({"event": "reactor_offline", "jaeger_id": j_id})
+        elif cmd.startswith("move_"):
+            target_pos = jaeger.maneuver(cmd)
+            
+            if self._grid.is_wall(target_pos[0], target_pos[1]):
+                reward -= 0.20
+                self._state.structural_damage += 1
+                self._grid.episode_history.append({"event": "structural_damage", "pos": target_pos})
+            elif self._grid.is_occupied_by_other_jaeger(target_pos, j_id):
+                reward -= 0.50
+                self._grid.episode_history.append({"event": "collision_jaeger"})
+            else:
+                target_before = self._grid.get_current_target(j_id)
+                dist_before = self._grid.manhattan_distance(jaeger.position, target_before) if target_before else 0
+
+                jaeger.position = target_pos
+
+                target_after = self._grid.get_current_target(j_id)
+                dist_after = self._grid.manhattan_distance(jaeger.position, target_after) if target_after else 0
+
+                if target_after and dist_after < dist_before:
+                    reward += 0.05
+                elif target_after and dist_after > dist_before:
+                    reward -= 0.05
+
+        elif cmd == "load_core":
+            curr_pos = jaeger.position
+            core_id = self._grid.get_core_at(curr_pos)
+
+            if core_id is None:
+                reward -= 0.10
+                self._grid.episode_history.append({"event": "misfire_load", "pos": curr_pos})
+                self._state.misfires += 1
+            else:
+                if jaeger.is_carrying():
+                    reward -= 0.10
+                else:
+                    if self._grid.is_core_in_directives(core_id):
+                        reward += 0.20
+                        self._grid.remove_core(curr_pos)
+                        jaeger.load_core(core_id)
+                        self._grid.episode_history.append({"event": "core_loaded", "core_id": core_id})
+                    else:
+                        reward -= 0.30
+                        self._state.misfires += 1
+
+        elif cmd == "deploy_core":
+            if not jaeger.is_carrying():
+                reward -= 0.10
+                self._state.misfires += 1
+            else:
+                curr_bay = self._grid.get_bay_name_at(jaeger.position)
+                if curr_bay is None:
+                    reward -= 0.10
+                else:
+                    core_id = jaeger.carrying
+                    directive = self._grid.get_directive(core_id)
+                    if directive and directive.deploy_to == curr_bay:
+                        reward += 0.50
+                        directive.done = True
+                        jaeger.deploy_core()
+                        self._state.cores_secured += 1
+                        self._grid.episode_history.append({"event": "core_deployed_correctly", "core_id": core_id, "priority": directive.priority})
+                    else:
+                        reward -= 0.30
+                        self._state.misfires += 1
+
+        elif cmd == "recharge":
+            if self._grid.is_reactor_charger(jaeger.position[0], jaeger.position[1]):
+                reward += 0.05
+                jaeger.recharge_reactor()
+            else:
+                reward -= 0.10
+
+        died = jaeger.drain_reactor(self._grid.reactor_drain)
+        if died:
+            reward -= 0.40
+            self._state.reactor_criticals += 1
+            self._grid.episode_history.append({"event": "reactor_critical_failure"})
+
+        self._grid.steps_taken += 1
+        
+        if self._grid.all_directives_complete():
+            reward += 1.00
+            done = True
+        elif self._grid.steps_taken >= self._grid.max_steps:
+            reward -= 0.10 * self._grid.cores_remaining_count()
+            done = True
+
+        return self._finalize_step(reward, done)
+
+    def _finalize_step(self, reward: float, done: bool) -> ShatterdomeObservation:
+        self._state.total_reward += reward
+        if done:
+            grader_cls = self.GRADERS.get(self._grid.task_id)
+            if grader_cls:
+                score = grader_cls().grade(self._grid.episode_history, self._grid, self._state)
+                self._state.grader_score = score
+        return self._build_observation(reward=round(reward, 2), done=done)
