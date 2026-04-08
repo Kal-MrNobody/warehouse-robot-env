@@ -1,5 +1,4 @@
 from openenv.core.env_server import create_app
-from fastapi.responses import RedirectResponse
 
 try:
     from .environment import WarehouseEnvironment
@@ -27,4 +26,17 @@ def root():
         "status": "running",
         "tasks": ["task1_easy", "task2_medium", "task3_hard"],
         "endpoints": ["/health", "/reset", "/step", "/state", "/schema", "/docs"],
+    }
+
+
+@app.get("/state")
+def state_fallback():
+    """
+    Fallback state endpoint for stateless HTTP callers.
+    Full state is available per-session via the WebSocket (/ws) interface.
+    """
+    return {
+        "episode_id": None,
+        "step_count": 0,
+        "note": "Use WebSocket /ws for session-persistent state.",
     }
