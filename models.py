@@ -4,13 +4,12 @@ from openenv.core.env_server import Action, Observation, State
 
 
 class WarehouseAction(Action):
-    """Single action sent by the agent each step."""
     model_config = ConfigDict(extra="allow", validate_assignment=True, arbitrary_types_allowed=True)
     action: str = ""
 
 
 class RobotStatus:
-    """Plain helper class for robot info in observations."""
+    """Lightweight helper used only in test scripts — not part of the server API."""
     def __init__(self, robot_id=0, position=(0, 0), carrying=None, battery=100.0):
         self.robot_id = robot_id
         self.position = position
@@ -19,7 +18,7 @@ class RobotStatus:
 
 
 class OrderItem:
-    """Tracks a single order item and its delivery status."""
+    """Tracks a single order line and whether it's been delivered."""
     def __init__(self, sku="", deliver_to="", priority=False, done=False):
         self.sku = sku
         self.deliver_to = deliver_to
@@ -28,7 +27,7 @@ class OrderItem:
 
 
 class WarehouseObservation(Observation):
-    """What the agent sees after each step. Inherits done/reward from base."""
+    """Everything the agent can see after each step."""
     model_config = ConfigDict(extra="allow", validate_assignment=True, arbitrary_types_allowed=True)
 
     grid_text: str = ""
@@ -44,7 +43,7 @@ class WarehouseObservation(Observation):
 
 
 class WarehouseState(State):
-    """Internal env state. Extends openenv State (extra='allow')."""
+    """Internal episode state — not exposed directly to the agent."""
     task_id: str = "task1_easy"
     total_reward: float = 0.0
     items_delivered: int = 0
