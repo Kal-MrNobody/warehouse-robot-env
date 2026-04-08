@@ -1,35 +1,35 @@
 """
 inference.py — Baseline agent for the Warehouse Robot RL environment.
 
-Runs all three tasks sequentially and emits structured [START], [STEP],
-and [END] log lines to stdout for automated evaluation.
+Runs all three tasks and emits structured [START], [STEP], [END] logs.
 
 Environment variables:
-    API_BASE_URL  LLM endpoint          (default: HuggingFace router)
+    API_BASE_URL  LLM endpoint          (default: HF router)
     MODEL_NAME    Model identifier       (default: Llama-3.1-8B-Instruct)
     HF_TOKEN      HuggingFace API key
-    ENV_URL       Environment server URL (default: http://localhost:7860)
+    ENV_URL       Server URL             (default: http://localhost:7860)
 """
 
-import json
 import os
 import sys
+from typing import List, Optional
 
 from openai import OpenAI
 from client import WarehouseEnv
 from models import WarehouseAction
 
-# ── Config from environment variables ────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN", "")
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
 ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
+BENCHMARK = "warehouse-robot-env"
 
 llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "dummy")
 
 SYSTEM_PROMPT = (
     "You are a warehouse robot controller. "
-    "Read the ASCII warehouse grid carefully and output EXACTLY ONE action word — nothing else.\n\n"
+    "Read the ASCII warehouse grid and output EXACTLY ONE action word — nothing else.\n\n"
     "Valid actions: move_north  move_south  move_east  move_west  "
     "pick_item  place_item  charge  done\n\n"
     "Strategy:\n"
@@ -47,8 +47,33 @@ VALID_ACTIONS = [
 ]
 
 
+# ── Structured stdout logging ────────────────────────────────────────
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    done_val = str(done).lower()
+    error_val = error if error else "null"
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
+        flush=True,
+    )
+
+
+# ── LLM call ─────────────────────────────────────────────────────────
+
 def get_action(observation_text: str) -> str:
-    """Query the LLM and extract a valid action string."""
+    """Query the LLM and return a valid action string."""
     for attempt in range(2):
         try:
             response = llm.chat.completions.create(
@@ -69,66 +94,58 @@ def get_action(observation_text: str) -> str:
     return "move_north"
 
 
+# ── Episode runner ───────────────────────────────────────────────────
+
 def run_task(task_id: str, max_steps: int, seed: int = 42) -> float:
-    """Run one episode and return the grader score."""
+    """Run one episode, emit structured logs, return grader score."""
 
-    with WarehouseEnv(base_url=ENV_URL).sync() as env:
-        result = env.reset(task_id=task_id, seed=seed)
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
 
-        # [START] — emitted once per episode
-        print(
-            "[START] " + json.dumps({
-                "task_id": task_id,
-                "seed": seed,
-                "max_steps": max_steps,
-                "items_remaining": result.observation.items_remaining,
-            }),
-            flush=True,
-        )
+    log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
-        cumulative_reward = 0.0
+    try:
+        with WarehouseEnv(base_url=ENV_URL).sync() as env:
+            result = env.reset(task_id=task_id, seed=seed)
 
-        for step_num in range(1, max_steps + 1):
-            action = get_action(result.observation.grid_text)
-            result = env.step(WarehouseAction(action=action))
+            for step_num in range(1, max_steps + 1):
+                if result.done:
+                    break
 
-            step_reward = result.observation.reward or 0.0
-            cumulative_reward += step_reward
+                action = get_action(result.observation.grid_text)
+                result = env.step(WarehouseAction(action=action))
 
-            # [STEP] — emitted after each action
-            print(
-                "[STEP] " + json.dumps({
-                    "task_id": task_id,
-                    "step": step_num,
-                    "action": action,
-                    "reward": round(step_reward, 4),
-                    "cumulative_reward": round(cumulative_reward, 4),
-                    "items_remaining": result.observation.items_remaining,
-                    "done": result.done,
-                }),
-                flush=True,
-            )
+                step_reward = result.observation.reward or 0.0
+                done = result.done
+                error = None
 
-            if result.done:
-                break
+                rewards.append(step_reward)
+                steps_taken = step_num
 
-        score = result.observation.grader_score
+                log_step(
+                    step=step_num,
+                    action=action,
+                    reward=step_reward,
+                    done=done,
+                    error=error,
+                )
 
-        # [END] — emitted once per episode
-        print(
-            "[END] " + json.dumps({
-                "task_id": task_id,
-                "score": round(score, 4),
-                "cumulative_reward": round(cumulative_reward, 4),
-                "steps_taken": result.observation.steps_taken,
-                "max_steps": max_steps,
-                "done_reason": result.observation.done_reason,
-            }),
-            flush=True,
-        )
+                if done:
+                    break
+
+            score = result.observation.grader_score
+            score = min(max(score, 0.0), 1.0)
+            success = score > 0.0
+
+    finally:
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return score
 
+
+# ── Main ─────────────────────────────────────────────────────────────
 
 def main():
     tasks = [
@@ -141,7 +158,6 @@ def main():
     for task_id, max_steps in tasks:
         scores[task_id] = run_task(task_id, max_steps)
 
-    # Summary
     avg = sum(scores.values()) / len(scores)
     print("\n--- Results ---", flush=True)
     for tid, sc in scores.items():
