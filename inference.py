@@ -22,11 +22,11 @@ MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 if not HF_TOKEN:
-    print("Warning: HF_TOKEN environment variable is not set. Inference may fail if API requires auth.")
+    print("Warning: HF_TOKEN environment variable is not set. Inference may fail if API requires auth.", file=sys.stderr)
 
 llm = OpenAI(
     base_url=API_BASE_URL,
-    api_key=HF_TOKEN or "dummy-key-for-local"
+    api_key=HF_TOKEN
 )
 
 # ──────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ def run_evaluation():
         finally:
             rewards_str = ",".join(reward_history) if reward_history else "0.00"
             # ── [END] LOG ──
-            print(f"[END] success={success} steps={steps_taken} score={final_score:.2f} rewards={rewards_str}")
+            print(f"[END] success={success} steps={steps_taken} score={final_score:.3f} rewards={rewards_str}")
 
 if __name__ == "__main__":
     run_evaluation()
