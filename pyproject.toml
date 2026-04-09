@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "shatterdome-logistics-env"
+version = "1.0.0"
+description = "Shatterdome Logistics Environment for OpenEnv"
+authors = [
+    { name = "Warehouse Engineering" }
+]
+dependencies = [
+    "openenv-core",
+    "pydantic",
+    "fastapi",
+    "uvicorn",
+    "openai",
+    "requests"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["shatterdome", "server", "tasks"]
