@@ -8,18 +8,24 @@ except ImportError:
 
 class ShatterdomeClient(EnvClient[ShatterdomeAction, ShatterdomeObservation, State]):
     """
-    WebSocket client for the Shatterdome environment.
+    HTTP/WebSocket client for the Shatterdome environment.
     """
+
     def _step_payload(self, action: ShatterdomeAction) -> dict:
-        return {"action": action.action}
+        # OpenEnv StepRequest.action must be a Dict[str, Any], so we send the full model dict
+        return {"action": action.model_dump()}
 
     def _parse_result(self, payload: dict) -> StepResult[ShatterdomeObservation]:
         obs_data = payload.get("observation", {})
-        top_reward = payload.get("reward")
+        top_reward = payload.get("reward", 0.0)
         top_done = payload.get("done", False)
-        
-        obs_data["reward"] = top_reward
-        obs_data["done"] = top_done
+
+        # Inject reward/done into obs_data only if the model expects them
+        if "reward" not in obs_data:
+            obs_data["reward"] = top_reward
+        if "done" not in obs_data:
+            obs_data["done"] = top_done
+
         obs = ShatterdomeObservation(**obs_data)
         return StepResult(observation=obs, reward=top_reward, done=top_done)
 

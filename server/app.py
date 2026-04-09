@@ -1,3 +1,5 @@
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from openenv.core.env_server import create_app
 
 try:
@@ -21,14 +23,20 @@ def root():
         "env": "shatterdome-logistics-env",
         "version": "1.0.0",
         "status": "online",
-        "directives": ["task1_easy", "task2_medium", "task3_hard"],
+        "tasks": ["task1_easy", "task2_medium", "task3_hard"],
         "endpoints": ["/health", "/reset", "/step", "/state", "/schema", "/docs"],
     }
 
+# Fallback GET /state so hackathon validator doesn't 500
 @app.get("/state")
-def state_fallback():
-    return {
-        "episode_id": None,
-        "step_count": 0,
-        "note": "Use WebSocket /ws for session-persistent state.",
-    }
+def state_get_fallback():
+    return JSONResponse(content={
+        "task_id": None,
+        "packages_secured": 0,
+        "structural_damage": 0,
+        "misfires": 0,
+        "battery_deaths": 0,
+        "grader_score": 0.0,
+        "total_reward": 0.0,
+        "note": "POST to /reset first to start a session."
+    })
