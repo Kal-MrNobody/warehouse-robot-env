@@ -13,7 +13,7 @@ class Task1Grader:
         
         # Penalize clumsy maneuvering
         score -= 0.05 * state.structural_damage
-        return max(0.0, min(1.0, score))
+        return max(0.01, min(0.99, score))
 
 class Task2Grader:
     def grade(self, history: list, grid, state: ShatterdomeState) -> float:
@@ -29,7 +29,7 @@ class Task2Grader:
         score -= 0.10 * state.structural_damage
         score -= 0.15 * state.battery_deaths
         
-        return max(0.0, min(1.0, score))
+        return max(0.01, min(0.99, score))
 
 class Task3Grader:
     def grade(self, history: list, grid, state: ShatterdomeState) -> float:
@@ -56,4 +56,4 @@ class Task3Grader:
         if state.battery_deaths == 0:
             score += 0.05
             
-        return max(0.0, min(1.0, score))
+        return max(0.01, min(0.99, score))
