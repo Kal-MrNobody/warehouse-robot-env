@@ -136,7 +136,7 @@ def run_evaluation():
             print(f"[STEP] step={steps_taken+1} action=error reward=0.00 done=true error={e}")
         finally:
             rewards_str = ",".join(reward_history) if reward_history else "0.00"
-            # ── [END] LOG ──
+            final_score = max(0.01, min(0.99, final_score))
             print(f"[END] success={success} steps={steps_taken} score={final_score:.3f} rewards={rewards_str}")
 
 if __name__ == "__main__":
