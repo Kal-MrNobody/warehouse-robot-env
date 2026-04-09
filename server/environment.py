@@ -41,12 +41,12 @@ class ShatterdomeEnvironment(Environment):
         self._grid = ShatterdomeGrid.from_task(task_id, seed)
         self._state = ShatterdomeState(task_id=task_id)
         self._grid.episode_history = []
-        return self._build_observation(reward=None, done=False)
+        return self._build_observation(reward=0.0, done=False)
 
     def state(self) -> ShatterdomeState:
         return self._state
 
-    def _build_observation(self, reward: float = None, done: bool = False) -> ShatterdomeObservation:
+    def _build_observation(self, reward: float = 0.0, done: bool = False) -> ShatterdomeObservation:
         score = self._state.grader_score if done else 0.0
         
         robots_data = [r.to_dict() for r in self._grid.robots.values()]
