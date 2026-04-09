@@ -40,3 +40,10 @@ def state_get_fallback():
         "total_reward": 0.0,
         "note": "POST to /reset first to start a session."
     })
+
+def main():
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()
