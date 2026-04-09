@@ -8,7 +8,7 @@ class HUD_Renderer:
         lines = []
         width = len(world.grid[0])
         lines.append("╔" + "═" * (width * 4 + 2) + "╗")
-        lines.append(f"║  CONN-POD HUD - Directive: {world.task_id}  Cycle {world.steps_taken}/{world.max_steps}".ljust(width * 4 + 3) + "║")
+        lines.append(f"║  WMS HUD - Order: {world.task_id}  Cycle {world.steps_taken}/{world.max_steps}".ljust(width * 4 + 3) + "║")
         lines.append("╠" + "═" * (width * 4 + 2) + "╣")
 
         for r in range(len(world.grid)):
@@ -17,62 +17,62 @@ class HUD_Renderer:
                 cell_type = world.grid[r][c]
                 pos = (r, c)
                 
-                # Render Jaegers
-                jaeger_here = None
-                for jid, jaeger in world.jaegers.items():
-                    if jaeger.position == pos:
-                        jaeger_here = jaeger
+                # Render Robots
+                robot_here = None
+                for rid, robot in world.robots.items():
+                    if robot.position == pos:
+                        robot_here = robot
                         break
                 
-                if jaeger_here:
-                    symbol = f"[J{jaeger_here.jaeger_id}*]" if jaeger_here.is_carrying() else f"[J{jaeger_here.jaeger_id}]"
+                if robot_here:
+                    symbol = f"[R{robot_here.robot_id}*]" if robot_here.is_carrying() else f"[R{robot_here.robot_id}]"
                     row_str += symbol.center(4)
-                elif pos in world.cores:
-                    core_id = world.cores[pos][-2:] # CORE-01 -> 01
-                    row_str += f"[C:{core_id}]".center(4)
-                elif pos in world.bays:
-                    bay_id = world.bays[pos][-1:] # BAY-A -> A
-                    row_str += f"[B:{bay_id}]".center(4)
-                elif cell_type == "R":
-                    row_str += "[R]".center(4)
+                elif pos in world.items:
+                    item_id = world.items[pos][-2:] # PKG-01 -> 01
+                    row_str += f"[P:{item_id}]".center(4)
+                elif pos in world.dropzones:
+                    zone_id = world.dropzones[pos][-1:] # ZONE-A -> A
+                    row_str += f"[Z:{zone_id}]".center(4)
+                elif cell_type == "B":
+                    row_str += "[B]".center(4)
                 else:
                     row_str += cell_type.center(4)
             row_str += " ║"
             lines.append(row_str)
 
         lines.append("╠" + "═" * (width * 4 + 2) + "╣")
-        lines.append("║  DIRECTIVES".ljust(width * 4 + 3) + "║")
-        for directive in world.directives:
-            status = "[x]" if directive.done else "[ ]"
-            pri = "⚡ " if directive.priority else ""
+        lines.append("║  ACTIVE ORDERS".ljust(width * 4 + 3) + "║")
+        for order in world.orders:
+            status = "[x]" if order.done else "[ ]"
+            pri = "⚡ " if order.priority else ""
             
             pickup_loc = "N/A"
-            for p, cid in world.cores.items():
-                if cid == directive.core_id:
+            for p, iid in world.items.items():
+                if iid == order.package_id:
                     pickup_loc = str(p)
                     break
             
-            for jaeger in world.jaegers.values():
-                if jaeger.carrying == directive.core_id:
-                    pickup_loc = f"Carried by J{jaeger.jaeger_id}"
+            for robot in world.robots.values():
+                if robot.carrying == order.package_id:
+                    pickup_loc = f"Carried by R{robot.robot_id}"
                     break
                     
-            line = f"║  {status} {pri}{directive.core_id} → {directive.deploy_to}  [pickup: {pickup_loc}]"
+            line = f"║  {status} {pri}{order.package_id} → {order.dropzone}  [pickup: {pickup_loc}]"
             lines.append(line.ljust(width * 4 + 3) + "║")
 
         lines.append("╠" + "═" * (width * 4 + 2) + "╣")
         
         # Power / status row
-        for jid, jaeger in world.jaegers.items():
-            stat_line = f"║  J{jid} Reactor: {jaeger.reactor_power:.1f}% | Stress: {world.cumulative_stress:.2f}"
+        for rid, robot in world.robots.items():
+            stat_line = f"║  R{rid} Battery: {robot.battery_level:.1f}% | Damage: {world.cumulative_stress:.2f}"
             lines.append(stat_line.ljust(width * 4 + 3) + "║")
 
         lines.append("╠" + "═" * (width * 4 + 2) + "╣")
         lines.append("║  VALID COMMANDS:".ljust(width * 4 + 3) + "║")
         lines.append("║  move_north  move_south  move_east".ljust(width * 4 + 3) + "║")
-        lines.append("║  move_west   load_core   deploy_core".ljust(width * 4 + 3) + "║")
+        lines.append("║  move_west   pickup_item drop_item".ljust(width * 4 + 3) + "║")
         lines.append("║  recharge    done".ljust(width * 4 + 3) + "║")
-        lines.append("║  → Neural Handshake: Output EXACTLY ONE command word only.".ljust(width * 4 + 3) + "║")
+        lines.append("║  → Output EXACTLY ONE command word only.".ljust(width * 4 + 3) + "║")
         lines.append("╚" + "═" * (width * 4 + 2) + "╝")
 
         return "\n".join(lines)

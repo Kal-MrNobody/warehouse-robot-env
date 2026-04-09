@@ -1,0 +1,10 @@
+Warning: HF_TOKEN environment variable is not set. Inference may fail if API requires auth.
+[START] task=task1_easy env=shatterdome-logistics-env model=llama-3.3-70b-versatile
+[STEP] step=1 action=error reward=0.00 done=true error="Failed to connect to wss://kalx0o-warehouse-robot-env.hf.space /ws: [Errno 11001] getaddrinfo failed"
+[END] success=false steps=0 score=0.00 rewards=0.00
+[START] task=task2_medium env=shatterdome-logistics-env model=llama-3.3-70b-versatile
+[STEP] step=1 action=error reward=0.00 done=true error="Failed to connect to wss://kalx0o-warehouse-robot-env.hf.space /ws: [Errno 11001] getaddrinfo failed"
+[END] success=false steps=0 score=0.00 rewards=0.00
+[START] task=task3_hard env=shatterdome-logistics-env model=llama-3.3-70b-versatile
+[STEP] step=1 action=error reward=0.00 done=true error="Failed to connect to wss://kalx0o-warehouse-robot-env.hf.space /ws: [Errno 11001] getaddrinfo failed"
+[END] success=false steps=0 score=0.00 rewards=0.00

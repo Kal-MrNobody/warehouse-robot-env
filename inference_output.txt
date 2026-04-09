@@ -1,0 +1,45 @@
+[START] task=task1_easy env=shatterdome-logistics-env model=llama-3.3-70b-versatile
+[STEP] step=1 action=error reward=0.00 done=true error=4 validation errors for ShatterdomeObservation
+robots
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+active_orders
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+packages_remaining
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+reward
+  Input should be a valid number [type=float_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.12/v/float_type
+[END] success=false steps=0 score=0.000 rewards=0.00
+[START] task=task2_medium env=shatterdome-logistics-env model=llama-3.3-70b-versatile
+[STEP] step=1 action=error reward=0.00 done=true error=4 validation errors for ShatterdomeObservation
+robots
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+active_orders
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+packages_remaining
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+reward
+  Input should be a valid number [type=float_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.12/v/float_type
+[END] success=false steps=0 score=0.000 rewards=0.00
+[START] task=task3_hard env=shatterdome-logistics-env model=llama-3.3-70b-versatile
+[STEP] step=1 action=error reward=0.00 done=true error=4 validation errors for ShatterdomeObservation
+robots
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+active_orders
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+packages_remaining
+  Field required [type=missing, input_value={'hud_display': '╔═...d': None, 'done': False}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+reward
+  Input should be a valid number [type=float_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.12/v/float_type
+[END] success=false steps=0 score=0.000 rewards=0.00

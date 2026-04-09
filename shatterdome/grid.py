@@ -2,36 +2,36 @@ from typing import Dict, List, Optional, Tuple
 import copy
 
 try:
-    from ..models import CoreLoad
-    from .jaeger import JaegerAgent
+    from ..models import OrderLoad
+    from .robot import RobotAgent
 except ImportError:
-    from models import CoreLoad
-    from shatterdome.jaeger import JaegerAgent
+    from models import OrderLoad
+    from shatterdome.robot import RobotAgent
 
 class ShatterdomeGrid:
     """
-    Holds the entire simulation state of the Shatterdome: the base grid, Jaegers,
-    Plasma Cores, Jaeger Bays, objectives (directives), and task config.
+    Holds the entire simulation state of the Shatterdome Logistics Center: 
+    the base grid, Robots, Packages, Drop Zones, orders, and task config.
     """
 
     def __init__(
         self,
         grid: List[List[str]],
-        jaegers: Dict[int, JaegerAgent],
-        cores: Dict[Tuple[int, int], str],
-        bays: Dict[Tuple[int, int], str],
-        directives: List[CoreLoad],
+        robots: Dict[int, RobotAgent],
+        items: Dict[Tuple[int, int], str],
+        dropzones: Dict[Tuple[int, int], str],
+        orders: List[OrderLoad],
         max_steps: int,
-        reactor_drain: float,
+        battery_drain: float,
         task_id: str,
     ):
         self.grid = grid
-        self.jaegers = jaegers
-        self.cores = cores
-        self.bays = bays
-        self.directives = directives
+        self.robots = robots
+        self.items = items
+        self.dropzones = dropzones
+        self.orders = orders
         self.max_steps = max_steps
-        self.reactor_drain = reactor_drain
+        self.battery_drain = battery_drain
         self.task_id = task_id
         
         self.steps_taken = 0
@@ -61,16 +61,16 @@ class ShatterdomeGrid:
             ['W', '.', '.', '.', '.', '.', '.', '.', '.', 'W'],
             ['W', '.', '.', '.', '.', '.', '.', '.', '.', 'W'],
             ['W', '.', '.', '.', '.', '.', '.', '.', '.', 'W'],
-            ['W', '.', '.', '.', '.', '.', '.', 'R', '.', 'W'],
+            ['W', '.', '.', '.', '.', '.', '.', 'B', '.', 'W'],
             ['W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W'],
         ]
-        jaegers = {0: JaegerAgent(jaeger_id=0, position=(4, 4))}
-        cores = {(2, 2): "CORE-01"}
-        bays = {(2, 7): "BAY-A"}
-        directives = [CoreLoad(core_id="CORE-01", deploy_to="BAY-A")]
+        robots = {0: RobotAgent(robot_id=0, position=(4, 4))}
+        items = {(2, 2): "PKG-01"}
+        dropzones = {(2, 7): "ZONE-A"}
+        orders = [OrderLoad(package_id="PKG-01", dropzone="ZONE-A")]
         return cls(
-            grid=grid, jaegers=jaegers, cores=cores, bays=bays,
-            directives=directives, max_steps=25, reactor_drain=0.0, task_id="task1_easy",
+            grid=grid, robots=robots, items=items, dropzones=dropzones,
+            orders=orders, max_steps=25, battery_drain=0.0, task_id="task1_easy",
         )
 
     @classmethod
@@ -84,20 +84,20 @@ class ShatterdomeGrid:
             ['W', '.', '.', 'W', '.', '.', '.', '.', '.', 'W'],
             ['W', '.', '.', '.', '.', '.', '.', '.', '.', 'W'],
             ['W', '.', '.', '.', '.', '.', '.', '.', '.', 'W'],
-            ['W', '.', '.', '.', '.', '.', '.', 'R', '.', 'W'],
+            ['W', '.', '.', '.', '.', '.', '.', 'B', '.', 'W'],
             ['W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W'],
         ]
-        jaegers = {0: JaegerAgent(jaeger_id=0, position=(5, 1))}
-        cores = {(1, 2): "CORE-01", (4, 5): "CORE-02", (7, 2): "CORE-03"}
-        bays = {(1, 7): "BAY-A", (5, 8): "BAY-B", (8, 7): "BAY-C"}
-        directives = [
-            CoreLoad(core_id="CORE-01", deploy_to="BAY-A"),
-            CoreLoad(core_id="CORE-02", deploy_to="BAY-B"),
-            CoreLoad(core_id="CORE-03", deploy_to="BAY-C"),
+        robots = {0: RobotAgent(robot_id=0, position=(5, 1))}
+        items = {(1, 2): "PKG-01", (4, 5): "PKG-02", (7, 2): "PKG-03"}
+        dropzones = {(1, 7): "ZONE-A", (5, 8): "ZONE-B", (8, 7): "ZONE-C"}
+        orders = [
+            OrderLoad(package_id="PKG-01", dropzone="ZONE-A"),
+            OrderLoad(package_id="PKG-02", dropzone="ZONE-B"),
+            OrderLoad(package_id="PKG-03", dropzone="ZONE-C"),
         ]
         return cls(
-            grid=grid, jaegers=jaegers, cores=cores, bays=bays,
-            directives=directives, max_steps=60, reactor_drain=2.0, task_id="task2_medium",
+            grid=grid, robots=robots, items=items, dropzones=dropzones,
+            orders=orders, max_steps=60, battery_drain=2.0, task_id="task2_medium",
         )
 
     @classmethod
@@ -111,30 +111,30 @@ class ShatterdomeGrid:
             ['W', '.', '.', '.', '.', '.', '.', '.', '.', 'W'],
             ['W', '.', '.', '.', '.', '.', '.', '.', '.', 'W'],
             ['W', '.', 'W', '.', 'W', '.', 'W', '.', '.', 'W'],
-            ['W', '.', '.', '.', '.', '.', '.', 'R', '.', 'W'],
+            ['W', '.', '.', '.', '.', '.', '.', 'B', '.', 'W'],
             ['W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W'],
         ]
-        jaegers = {
-            0: JaegerAgent(jaeger_id=0, position=(1, 1)),
-            1: JaegerAgent(jaeger_id=1, position=(8, 1)),
+        robots = {
+            0: RobotAgent(robot_id=0, position=(1, 1)),
+            1: RobotAgent(robot_id=1, position=(8, 1)),
         }
-        cores = {
-            (1, 3): "CORE-01", (3, 5): "CORE-02",
-            (6, 2): "CORE-03", (8, 5): "CORE-04",
+        items = {
+            (1, 3): "PKG-01", (3, 5): "PKG-02",
+            (6, 2): "PKG-03", (8, 5): "PKG-04",
         }
-        bays = {
-            (1, 7): "BAY-A", (3, 7): "BAY-B",
-            (6, 7): "BAY-C", (8, 7): "BAY-D",
+        dropzones = {
+            (1, 7): "ZONE-A", (3, 7): "ZONE-B",
+            (6, 7): "ZONE-C", (8, 7): "ZONE-D",
         }
-        directives = [
-            CoreLoad(core_id="CORE-01", deploy_to="BAY-A", priority=True),
-            CoreLoad(core_id="CORE-02", deploy_to="BAY-B", priority=True),
-            CoreLoad(core_id="CORE-03", deploy_to="BAY-C", priority=False),
-            CoreLoad(core_id="CORE-04", deploy_to="BAY-D", priority=False),
+        orders = [
+            OrderLoad(package_id="PKG-01", dropzone="ZONE-A", priority=True),
+            OrderLoad(package_id="PKG-02", dropzone="ZONE-B", priority=True),
+            OrderLoad(package_id="PKG-03", dropzone="ZONE-C", priority=False),
+            OrderLoad(package_id="PKG-04", dropzone="ZONE-D", priority=False),
         ]
         return cls(
-            grid=grid, jaegers=jaegers, cores=cores, bays=bays,
-            directives=directives, max_steps=100, reactor_drain=1.5, task_id="task3_hard",
+            grid=grid, robots=robots, items=items, dropzones=dropzones,
+            orders=orders, max_steps=100, battery_drain=1.5, task_id="task3_hard",
         )
 
     def is_wall(self, row: int, col: int) -> bool:
@@ -142,78 +142,76 @@ class ShatterdomeGrid:
             return True
         return self.grid[row][col] == 'W'
 
-    def is_reactor_charger(self, row: int, col: int) -> bool:
+    def is_battery_charger(self, row: int, col: int) -> bool:
         if row < 0 or row >= len(self.grid) or col < 0 or col >= len(self.grid[0]):
             return False
-        return self.grid[row][col] == 'R'
+        return self.grid[row][col] == 'B'
 
-    def is_occupied_by_other_jaeger(self, position: Tuple[int, int], jaeger_id: int) -> bool:
-        for jid, jaeger in self.jaegers.items():
-            if jid != jaeger_id and jaeger.position == position:
+    def is_occupied_by_other_robot(self, position: Tuple[int, int], robot_id: int) -> bool:
+        for rid, robot in self.robots.items():
+            if rid != robot_id and robot.position == position:
                 return True
         return False
 
-    def all_directives_complete(self) -> bool:
-        return all(d.done for d in self.directives)
+    def all_orders_complete(self) -> bool:
+        return all(o.done for o in self.orders)
 
-    def cores_remaining_count(self) -> int:
-        return sum(1 for d in self.directives if not d.done)
+    def packages_remaining_count(self) -> int:
+        return sum(1 for o in self.orders if not o.done)
 
-    def cores_secured_count(self) -> int:
-        return sum(1 for d in self.directives if d.done)
+    def packages_secured_count(self) -> int:
+        return sum(1 for o in self.orders if o.done)
 
-    def is_core_in_directives(self, core_id: str) -> bool:
-        return any(d.core_id == core_id and not d.done for d in self.directives)
+    def is_item_in_orders(self, item_id: str) -> bool:
+        return any(o.package_id == item_id and not o.done for o in self.orders)
 
-    def get_directive(self, core_id: str) -> Optional[CoreLoad]:
-        for d in self.directives:
-            if d.core_id == core_id and not d.done:
-                return d
+    def get_order(self, item_id: str) -> Optional[OrderLoad]:
+        for o in self.orders:
+            if o.package_id == item_id and not o.done:
+                return o
         return None
 
-    def get_bay_for_core(self, core_id: str) -> Optional[str]:
-        for d in self.directives:
-            if d.core_id == core_id and not d.done:
-                return d.deploy_to
+    def get_dropzone_for_item(self, item_id: str) -> Optional[str]:
+        for o in self.orders:
+            if o.package_id == item_id and not o.done:
+                return o.dropzone
         return None
 
-    def get_bay_name_at(self, position: Tuple[int, int]) -> Optional[str]:
-        return self.bays.get(position)
+    def get_dropzone_name_at(self, position: Tuple[int, int]) -> Optional[str]:
+        return self.dropzones.get(position)
 
-    def get_core_at(self, position: Tuple[int, int]) -> Optional[str]:
-        return self.cores.get(position)
+    def get_item_at(self, position: Tuple[int, int]) -> Optional[str]:
+        return self.items.get(position)
 
-    def remove_core(self, position: Tuple[int, int]) -> Optional[str]:
-        return self.cores.pop(position, None)
+    def remove_item(self, position: Tuple[int, int]) -> Optional[str]:
+        return self.items.pop(position, None)
 
-    def get_current_target(self, jaeger_id: int) -> Optional[Tuple[int, int]]:
+    def get_current_target(self, robot_id: int) -> Optional[Tuple[int, int]]:
         """
-        Determine the next target position for a Jaeger for reward shaping.
-        - If carrying a core, target is the correct bay.
-        - If not carrying, target is the nearest incomplete core.
+        Determine the next target position for a robot for reward shaping.
         """
-        jaeger = self.jaegers.get(jaeger_id)
-        if jaeger is None:
+        robot = self.robots.get(robot_id)
+        if robot is None:
             return None
 
-        if jaeger.is_carrying():
-            core_id = jaeger.carrying
-            expected_bay = self.get_bay_for_core(core_id)
-            if expected_bay:
-                for pos, bay_name in self.bays.items():
-                    if bay_name == expected_bay:
+        if robot.is_carrying():
+            item_id = robot.carrying
+            expected_zone = self.get_dropzone_for_item(item_id)
+            if expected_zone:
+                for pos, zone_name in self.dropzones.items():
+                    if zone_name == expected_zone:
                         return pos
-            if self.bays: # fallback
-                return next(iter(self.bays.keys()))
+            if self.dropzones: # fallback
+                return next(iter(self.dropzones.keys()))
             return None
 
         best_pos = None
         best_dist = float('inf')
-        rr, rc = jaeger.position
-        for d in self.directives:
-            if not d.done:
-                for pos, cid in self.cores.items():
-                    if cid == d.core_id:
+        rr, rc = robot.position
+        for o in self.orders:
+            if not o.done:
+                for pos, i_id in self.items.items():
+                    if i_id == o.package_id:
                         dist = abs(pos[0] - rr) + abs(pos[1] - rc)
                         if dist < best_dist:
                             best_dist = dist

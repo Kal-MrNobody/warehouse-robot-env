@@ -16,7 +16,6 @@ from models import ShatterdomeAction
 # CONFIGURATION
 # ──────────────────────────────────────────────────────────
 
-ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
 HF_TOKEN = os.getenv("HF_TOKEN")
@@ -34,30 +33,30 @@ llm = OpenAI(
 # ──────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """
-You are the AI co-pilot for a PPDC Jaeger in the Shatterdome.
-You receive a CONN-POD HUD which shows the layout of the facility.
+You are the AI brain controlling a logistics robot in an E-Commerce warehouse.
+You receive a WMS (Warehouse Management System) HUD showing the layout of the facility.
 
-[J0] is your Jaeger (if empty). [J0*] means your Jaeger is carrying a Plasma Core.
-[C:01] is a Plasma Core on the floor.
-[B:A] is Jaeger Bay A.
-[R] is a Reactor Charger.
+[R0] is your robot (if empty). [R0*] means your robot is carrying a package.
+[P:01] is a Package waiting on the floor.
+[Z:A] is Drop Zone A.
+[B] is a Battery Charger.
 'W' are impassable walls.
 
-Your objective: Secure Plasma Cores and deploy them to the designated Jaeger Bays as listed in your DIRECTIVES.
-Beware: Your actions drain the Jaeger's reactor. If it hits 0%, you fail. Use [R] to recharge.
-Do NOT crash into walls or other Jaegers.
+Your objective: Pickup packages and drop them off to the designated Drop Zones as listed in your ACTIVE ORDERS.
+Beware: Your actions drain the robot's battery. If it hits 0%, you fail. Use [B] to recharge.
+Do NOT crash into walls or other robots.
 
 VALID COMMANDS:
-move_north, move_south, move_east, move_west, load_core, deploy_core, recharge, done
+move_north, move_south, move_east, move_west, pickup_item, drop_item, recharge, done
 
-Evaluate the grid, look at your position, look at the nearest Core or Bay, and decide the ONE single command to execute.
+Evaluate the grid, look at your position, look at the nearest Package or Drop Zone, and decide the ONE single command to execute.
 Output NOTHING ELSE except the exact command word.
 """
 
 def extract_action(text: str) -> str:
     valid_actions = {
         "move_north", "move_south", "move_east", "move_west",
-        "load_core", "deploy_core", "recharge", "done"
+        "pickup_item", "drop_item", "recharge", "done"
     }
     text = text.lower()
     for action in valid_actions:
@@ -89,6 +88,9 @@ def get_action(hud_text: str) -> str:
 
 def run_evaluation():
     tasks = ["task1_easy", "task2_medium", "task3_hard"]
+    
+    # Use ENV_URL for local testing or default to hf space for production evaluation
+    env_str = os.getenv("ENV_URL", "https://kalx0o-shatterdome-logistics-env.hf.space")
 
     for task_id in tasks:
         # ── [START] LOG ──
@@ -101,7 +103,7 @@ def run_evaluation():
         is_done = False
 
         try:
-            with ShatterdomeClient(base_url=ENV_URL).sync() as env:
+            with ShatterdomeClient(base_url=env_str).sync() as env:
                 result = env.reset(task_id=task_id, seed=42)
                 
                 obs = result.observation
@@ -126,7 +128,7 @@ def run_evaluation():
                     print(f"[STEP] step={steps_taken} action={action_str} reward={reward_val:.2f} done={str(is_done).lower()} error=null")
                     
                     if is_done:
-                        if final_score > 0.0 and obs.cores_remaining == 0:
+                        if final_score > 0.0 and obs.packages_remaining == 0:
                             success = "true"
                         break
 

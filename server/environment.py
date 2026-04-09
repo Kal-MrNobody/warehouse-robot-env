@@ -26,7 +26,7 @@ class ShatterdomeEnvironment(Environment):
 
     VALID_ACTIONS = {
         "move_north", "move_south", "move_east", "move_west",
-        "load_core", "deploy_core", "recharge", "done"
+        "pickup_item", "drop_item", "recharge", "done"
     }
 
     GRADERS = load_graders()
@@ -49,14 +49,14 @@ class ShatterdomeEnvironment(Environment):
     def _build_observation(self, reward: float = None, done: bool = False) -> ShatterdomeObservation:
         score = self._state.grader_score if done else 0.0
         
-        jaegers_data = [j.to_dict() for j in self._grid.jaegers.values()]
-        active_directives = [{"core_id": d.core_id, "deploy_to": d.deploy_to, "done": d.done} for d in self._grid.directives]
+        robots_data = [r.to_dict() for r in self._grid.robots.values()]
+        active_orders = [{"package_id": o.package_id, "dropzone": o.dropzone, "done": o.done} for o in self._grid.orders]
         
         return ShatterdomeObservation(
             hud_display=HUD_Renderer.render(self._grid),
-            jaegers=jaegers_data,
-            active_directives=active_directives,
-            cores_remaining=self._grid.cores_remaining_count(),
+            robots=robots_data,
+            active_orders=active_orders,
+            packages_remaining=self._grid.packages_remaining_count(),
             cycles_elapsed=self._grid.steps_taken,
             max_cycles=self._grid.max_steps,
             cumulative_stress=round(self._grid.cumulative_stress, 2),
@@ -79,101 +79,98 @@ class ShatterdomeEnvironment(Environment):
             done = True
             return self._finalize_step(reward, done)
 
-        # For multi-agent tasks, we default to Jaeger 0 logic for simplicity,
-        # but in hard task, we could alternate or let action spec include jaeger_id.
-        # Since hackathon baseline is single string action, we control Jaeger 0.
-        j_id = 0
-        jaeger = self._grid.jaegers[j_id]
+        r_id = 0
+        robot = self._grid.robots[r_id]
 
-        if jaeger.reactor_power <= 0:
+        if robot.battery_level <= 0:
             reward -= 0.40
-            self._grid.episode_history.append({"event": "reactor_offline", "jaeger_id": j_id})
+            self._grid.episode_history.append({"event": "battery_offline", "robot_id": r_id})
         elif cmd.startswith("move_"):
-            target_pos = jaeger.maneuver(cmd)
+            target_pos = robot.maneuver(cmd)
             
             if self._grid.is_wall(target_pos[0], target_pos[1]):
                 reward -= 0.20
                 self._state.structural_damage += 1
-                self._grid.episode_history.append({"event": "structural_damage", "pos": target_pos})
-            elif self._grid.is_occupied_by_other_jaeger(target_pos, j_id):
+                self._grid.episode_history.append({"event": "collision_wall", "pos": target_pos})
+            elif self._grid.is_occupied_by_other_robot(target_pos, r_id):
                 reward -= 0.50
-                self._grid.episode_history.append({"event": "collision_jaeger"})
+                self._grid.episode_history.append({"event": "collision_robot"})
             else:
-                target_before = self._grid.get_current_target(j_id)
-                dist_before = self._grid.manhattan_distance(jaeger.position, target_before) if target_before else 0
+                target_before = self._grid.get_current_target(r_id)
+                dist_before = self._grid.manhattan_distance(robot.position, target_before) if target_before else 0
 
-                jaeger.position = target_pos
+                robot.position = target_pos
 
-                target_after = self._grid.get_current_target(j_id)
-                dist_after = self._grid.manhattan_distance(jaeger.position, target_after) if target_after else 0
+                target_after = self._grid.get_current_target(r_id)
+                dist_after = self._grid.manhattan_distance(robot.position, target_after) if target_after else 0
 
                 if target_after and dist_after < dist_before:
                     reward += 0.05
                 elif target_after and dist_after > dist_before:
                     reward -= 0.05
 
-        elif cmd == "load_core":
-            curr_pos = jaeger.position
-            core_id = self._grid.get_core_at(curr_pos)
+        elif cmd == "pickup_item":
+            curr_pos = robot.position
+            item_id = self._grid.get_item_at(curr_pos)
 
-            if core_id is None:
+            if item_id is None:
                 reward -= 0.10
-                self._grid.episode_history.append({"event": "misfire_load", "pos": curr_pos})
+                self._grid.episode_history.append({"event": "misfire_pickup", "pos": curr_pos})
                 self._state.misfires += 1
             else:
-                if jaeger.is_carrying():
+                if robot.is_carrying():
                     reward -= 0.10
                 else:
-                    if self._grid.is_core_in_directives(core_id):
+                    if self._grid.is_item_in_orders(item_id):
                         reward += 0.20
-                        self._grid.remove_core(curr_pos)
-                        jaeger.load_core(core_id)
-                        self._grid.episode_history.append({"event": "core_loaded", "core_id": core_id})
+                        self._grid.remove_item(curr_pos)
+                        robot.pickup_item(item_id)
+                        self._grid.episode_history.append({"event": "item_picked_up", "item_id": item_id})
                     else:
                         reward -= 0.30
                         self._state.misfires += 1
 
-        elif cmd == "deploy_core":
-            if not jaeger.is_carrying():
+        elif cmd == "drop_item":
+            if not robot.is_carrying():
                 reward -= 0.10
                 self._state.misfires += 1
             else:
-                curr_bay = self._grid.get_bay_name_at(jaeger.position)
-                if curr_bay is None:
+                curr_zone = self._grid.get_dropzone_name_at(robot.position)
+                if curr_zone is None:
                     reward -= 0.10
                 else:
-                    core_id = jaeger.carrying
-                    directive = self._grid.get_directive(core_id)
-                    if directive and directive.deploy_to == curr_bay:
+                    item_id = robot.carrying
+                    order = self._grid.get_order(item_id)
+                    if order and order.dropzone == curr_zone:
                         reward += 0.50
-                        directive.done = True
-                        jaeger.deploy_core()
-                        self._state.cores_secured += 1
-                        self._grid.episode_history.append({"event": "core_deployed_correctly", "core_id": core_id, "priority": directive.priority})
+                        order.done = True
+                        robot.drop_item()
+                        self._state.packages_secured += 1
+                        self._grid.episode_history.append({"event": "item_delivered", "item_id": item_id, "priority": order.priority})
                     else:
                         reward -= 0.30
                         self._state.misfires += 1
 
         elif cmd == "recharge":
-            if self._grid.is_reactor_charger(jaeger.position[0], jaeger.position[1]):
+            if self._grid.is_battery_charger(robot.position[0], robot.position[1]):
                 reward += 0.05
-                jaeger.recharge_reactor()
+                robot.recharge_battery()
             else:
                 reward -= 0.10
 
-        died = jaeger.drain_reactor(self._grid.reactor_drain)
+        died = robot.drain_battery(self._grid.battery_drain)
         if died:
             reward -= 0.40
-            self._state.reactor_criticals += 1
-            self._grid.episode_history.append({"event": "reactor_critical_failure"})
+            self._state.battery_deaths += 1
+            self._grid.episode_history.append({"event": "battery_depleted"})
 
         self._grid.steps_taken += 1
         
-        if self._grid.all_directives_complete():
+        if self._grid.all_orders_complete():
             reward += 1.00
             done = True
         elif self._grid.steps_taken >= self._grid.max_steps:
-            reward -= 0.10 * self._grid.cores_remaining_count()
+            reward -= 0.10 * self._grid.packages_remaining_count()
             done = True
 
         return self._finalize_step(reward, done)

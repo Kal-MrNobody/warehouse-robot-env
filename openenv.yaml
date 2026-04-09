@@ -1,8 +1,8 @@
 name: shatterdome-logistics-env
 version: "1.0.0"
-description: "Pan Pacific Defense Corps Shatterdome environment where Jaeger agents must secure and deploy Plasma Cores into Jaeger Bays."
+description: "Shatterdome Logistics Environment: An E-Commerce automated warehouse where logistics robots navigate, manage battery life, and complete package delivery orders."
 
-author: "PPDC Engineering"
+author: "Warehouse Engineering"
 
 server:
   port: 7860
@@ -15,8 +15,8 @@ action_space:
     - move_south
     - move_east
     - move_west
-    - load_core
-    - deploy_core
+    - pickup_item
+    - drop_item
     - recharge
     - done
 
@@ -26,13 +26,13 @@ observation_space:
 
 tasks:
   - id: task1_easy
-    description: "Standard single core load. F-Stop conditions clear."
+    description: "Standard single package delivery in an open warehouse floor."
     max_steps: 25
 
   - id: task2_medium
-    description: "Multi-core load. Internal structural hazards. Reactor decay active."
+    description: "Multi-package order. Internal structural hazards. Battery decay active."
     max_steps: 60
 
   - id: task3_hard
-    description: "Dual Jaeger deployment. Priority cores active. High reactor decay and severe collision risks."
+    description: "Dual robot deployment. Priority packages active. High battery decay and severe collision risks."
     max_steps: 100
