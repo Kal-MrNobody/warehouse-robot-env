@@ -28,6 +28,7 @@ class Task2Grader:
         # Penalties for battery failure and wall hits
         score -= 0.10 * state.structural_damage
         score -= 0.15 * state.battery_deaths
+        score -= 0.33 * state.packages_failed
         
         return max(0.01, min(0.99, score))
 
@@ -46,6 +47,7 @@ class Task3Grader:
         # Multi-agent collision is very bad
         robot_collisions = sum(1 for e in history if e.get("event") == "collision_robot")
         score -= 0.10 * robot_collisions
+        score -= 0.33 * state.packages_failed
         
         # Speed bonus for priority targets
         priority_secured = sum(1 for e in history if e.get("event") == "item_delivered" and e.get("priority"))

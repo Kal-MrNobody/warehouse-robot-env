@@ -18,6 +18,10 @@ class OrderLoad(BaseModel):
     dropzone: str
     done: bool = False
     priority: bool = False
+    weight: str = "normal"
+    fragile: bool = False
+    deadline: Optional[int] = None
+    failed: bool = False
 
 class ShatterdomeObservation(BaseModel):
     hud_display: str = Field(description="ASCII representation of the facility logistics grid.")
@@ -37,5 +41,6 @@ class ShatterdomeState(BaseModel):
     structural_damage: int = 0
     misfires: int = 0
     battery_deaths: int = 0
+    packages_failed: int = 0
     grader_score: float = 0.0
     total_reward: float = 0.0

@@ -50,7 +50,7 @@ class ShatterdomeEnvironment(Environment):
         score = self._state.grader_score if done else 0.0
         
         robots_data = [r.to_dict() for r in self._grid.robots.values()]
-        active_orders = [{"package_id": o.package_id, "dropzone": o.dropzone, "done": o.done} for o in self._grid.orders]
+        active_orders = [{"package_id": o.package_id, "dropzone": o.dropzone, "done": o.done, "weight": o.weight, "fragile": o.fragile, "deadline": o.deadline} for o in self._grid.orders if not o.failed]
         
         return ShatterdomeObservation(
             hud_display=HUD_Renderer.render(self._grid),
@@ -92,9 +92,25 @@ class ShatterdomeEnvironment(Environment):
                 reward -= 0.20
                 self._state.structural_damage += 1
                 self._grid.episode_history.append({"event": "collision_wall", "pos": target_pos})
+                if robot.is_carrying():
+                    order = self._grid.get_order(robot.carrying)
+                    if order and order.fragile:
+                        self._grid.fail_order(robot.carrying)
+                        robot.drop_item()
+                        reward -= 3.0
+                        self._state.packages_failed += 1
+                        self._grid.episode_history.append({"event": "fragile_broken"})
             elif self._grid.is_occupied_by_other_robot(target_pos, r_id):
                 reward -= 0.50
                 self._grid.episode_history.append({"event": "collision_robot"})
+                if robot.is_carrying():
+                    order = self._grid.get_order(robot.carrying)
+                    if order and order.fragile:
+                        self._grid.fail_order(robot.carrying)
+                        robot.drop_item()
+                        reward -= 3.0
+                        self._state.packages_failed += 1
+                        self._grid.episode_history.append({"event": "fragile_broken"})
             else:
                 target_before = self._grid.get_current_target(r_id)
                 dist_before = self._grid.manhattan_distance(robot.position, target_before) if target_before else 0
@@ -158,7 +174,12 @@ class ShatterdomeEnvironment(Environment):
             else:
                 reward -= 0.10
 
-        died = robot.drain_battery(self._grid.battery_drain)
+        drain = self._grid.battery_drain
+        if robot.is_carrying():
+            o = self._grid.get_order(robot.carrying)
+            if o and o.weight == "heavy":
+                drain *= 3.0
+        died = robot.drain_battery(drain)
         if died:
             reward -= 0.40
             self._state.battery_deaths += 1
@@ -166,6 +187,16 @@ class ShatterdomeEnvironment(Environment):
 
         self._grid.steps_taken += 1
         
+        for order in self._grid.orders:
+            if order.deadline and self._grid.steps_taken >= order.deadline and not order.done and not order.failed:
+                self._grid.fail_order(order.package_id)
+                reward -= 2.0
+                self._state.packages_failed += 1
+                self._grid.episode_history.append({"event": "deadline_missed", "item_id": order.package_id})
+                for r in self._grid.robots.values():
+                    if r.carrying == order.package_id:
+                        r.drop_item()
+
         if self._grid.all_orders_complete():
             reward += 1.00
             done = True

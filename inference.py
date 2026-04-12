@@ -46,6 +46,12 @@ Your objective: Pickup packages and drop them off to the designated Drop Zones a
 Beware: Your actions drain the robot's battery. If it hits 0%, you fail. Use [B] to recharge.
 Do NOT crash into walls or other robots.
 
+*** ADVANCED PHYSICS & SLAs ***
+Pay close attention to your ACTIVE ORDERS JSON list in the observation:
+1. "weight": "heavy" packages multiply your battery drain by 3x! Recharge aggressively before picking these up.
+2. "fragile": true means you MUST NOT touch walls or other robots while carrying it! It WILL completely shatter!
+3. "deadline": X means the package MUST be dropped off before step X. If you fail, the customer cancels. Prioritize tight deadlines.
+
 VALID COMMANDS:
 move_north, move_south, move_east, move_west, pickup_item, drop_item, recharge, done
 

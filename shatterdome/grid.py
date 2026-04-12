@@ -91,8 +91,8 @@ class ShatterdomeGrid:
         items = {(1, 2): "PKG-01", (4, 5): "PKG-02", (7, 2): "PKG-03"}
         dropzones = {(1, 7): "ZONE-A", (5, 8): "ZONE-B", (8, 7): "ZONE-C"}
         orders = [
-            OrderLoad(package_id="PKG-01", dropzone="ZONE-A"),
-            OrderLoad(package_id="PKG-02", dropzone="ZONE-B"),
+            OrderLoad(package_id="PKG-01", dropzone="ZONE-A", deadline=40),
+            OrderLoad(package_id="PKG-02", dropzone="ZONE-B", weight="heavy"),
             OrderLoad(package_id="PKG-03", dropzone="ZONE-C"),
         ]
         return cls(
@@ -127,10 +127,10 @@ class ShatterdomeGrid:
             (6, 7): "ZONE-C", (8, 7): "ZONE-D",
         }
         orders = [
-            OrderLoad(package_id="PKG-01", dropzone="ZONE-A", priority=True),
-            OrderLoad(package_id="PKG-02", dropzone="ZONE-B", priority=True),
-            OrderLoad(package_id="PKG-03", dropzone="ZONE-C", priority=False),
-            OrderLoad(package_id="PKG-04", dropzone="ZONE-D", priority=False),
+            OrderLoad(package_id="PKG-01", dropzone="ZONE-A", priority=True, deadline=30),
+            OrderLoad(package_id="PKG-02", dropzone="ZONE-B", priority=True, fragile=True),
+            OrderLoad(package_id="PKG-03", dropzone="ZONE-C", weight="heavy"),
+            OrderLoad(package_id="PKG-04", dropzone="ZONE-D", fragile=True),
         ]
         return cls(
             grid=grid, robots=robots, items=items, dropzones=dropzones,
@@ -157,23 +157,23 @@ class ShatterdomeGrid:
         return all(o.done for o in self.orders)
 
     def packages_remaining_count(self) -> int:
-        return sum(1 for o in self.orders if not o.done)
+        return sum(1 for o in self.orders if not o.done and not o.failed)
 
     def packages_secured_count(self) -> int:
         return sum(1 for o in self.orders if o.done)
 
     def is_item_in_orders(self, item_id: str) -> bool:
-        return any(o.package_id == item_id and not o.done for o in self.orders)
+        return any(o.package_id == item_id and not o.done and not o.failed for o in self.orders)
 
     def get_order(self, item_id: str) -> Optional[OrderLoad]:
         for o in self.orders:
-            if o.package_id == item_id and not o.done:
+            if o.package_id == item_id:
                 return o
         return None
 
     def get_dropzone_for_item(self, item_id: str) -> Optional[str]:
         for o in self.orders:
-            if o.package_id == item_id and not o.done:
+            if o.package_id == item_id:
                 return o.dropzone
         return None
 
@@ -185,6 +185,19 @@ class ShatterdomeGrid:
 
     def remove_item(self, position: Tuple[int, int]) -> Optional[str]:
         return self.items.pop(position, None)
+
+    def fail_order(self, item_id: str):
+        o = self.get_order(item_id)
+        if o:
+            o.failed = True
+        # Despawn it from the grid if it's there
+        pos_to_remove = None
+        for p, i in self.items.items():
+            if i == item_id:
+                pos_to_remove = p
+                break
+        if pos_to_remove:
+            self.remove_item(pos_to_remove)
 
     def get_current_target(self, robot_id: int) -> Optional[Tuple[int, int]]:
         """
@@ -209,7 +222,7 @@ class ShatterdomeGrid:
         best_dist = float('inf')
         rr, rc = robot.position
         for o in self.orders:
-            if not o.done:
+            if not o.done and not o.failed:
                 for pos, i_id in self.items.items():
                     if i_id == o.package_id:
                         dist = abs(pos[0] - rr) + abs(pos[1] - rc)
