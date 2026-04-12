@@ -27,6 +27,10 @@ def root():
         "endpoints": ["/health", "/reset", "/step", "/state", "/schema", "/docs"],
     }
 
+@app.get("/health")
+def health():
+    return {"status": "healthy", "service": "shatterdome-logistics-env"}
+
 # Fallback GET /state so hackathon validator doesn't 500
 @app.get("/state")
 def state_get_fallback():

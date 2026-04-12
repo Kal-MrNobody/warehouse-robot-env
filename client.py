@@ -12,8 +12,7 @@ class ShatterdomeClient(EnvClient[ShatterdomeAction, ShatterdomeObservation, Sta
     """
 
     def _step_payload(self, action: ShatterdomeAction) -> dict:
-        # OpenEnv StepRequest.action must be a Dict[str, Any], so we send the full model dict
-        return {"action": action.model_dump()}
+        return action.model_dump()
 
     def _parse_result(self, payload: dict) -> StepResult[ShatterdomeObservation]:
         obs_data = payload.get("observation", {})

@@ -1,7 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any
+from openenv.core.env_server import Action, Observation, State
 
-class ShatterdomeAction(BaseModel):
+class ShatterdomeAction(Action):
     action: str = Field(
         ...,
         description="The exact command for the logistics robot. Valid commands: move_north, move_south, move_east, move_west, pickup_item, drop_item, recharge, done."
@@ -23,7 +24,7 @@ class OrderLoad(BaseModel):
     deadline: Optional[int] = None
     failed: bool = False
 
-class ShatterdomeObservation(BaseModel):
+class ShatterdomeObservation(Observation):
     hud_display: str = Field(description="ASCII representation of the facility logistics grid.")
     robots: List[dict] = Field(description="List of active robots and their status.")
     active_orders: List[dict] = Field(description="Pending e-commerce delivery objectives.")
@@ -35,7 +36,7 @@ class ShatterdomeObservation(BaseModel):
     reward: float = 0.0
     done: bool = False
 
-class ShatterdomeState(BaseModel):
+class ShatterdomeState(State):
     task_id: str
     packages_secured: int = 0
     structural_damage: int = 0

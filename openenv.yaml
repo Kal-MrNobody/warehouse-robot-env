@@ -1,4 +1,5 @@
 name: shatterdome-logistics-env
+env_id: shatterdome-logistics-env
 version: "1.0.0"
 description: "Shatterdome Logistics Environment: An E-Commerce automated warehouse where logistics robots navigate, manage battery life, and complete package delivery orders."
 
