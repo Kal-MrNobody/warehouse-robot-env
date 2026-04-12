@@ -8,62 +8,85 @@ app_port: 7860
 pinned: false
 ---
 
-# Shatterdome Logistics Environment
+# 📦 Shatterdome Logistics: A Physics-Aware Warehouse RL Training Environment
 
-*A production-ready OpenEnv baseline for the Meta OpenEnv x Scaler Hackathon.*
-
-Welcome to the **Shatterdome Logistics Environment**. E-Commerce fulfillment centers (like Amazon or Flipkart) require intelligent, automated systems to coordinate robot fleets. Your objective is to train or engineer an AI agent capable of guiding warehouse robots to pick up customer packages and deliver them to designated shipping drop-zones without colliding or draining their battery. 
-
-## The Mission
-
-The environment operates on a 10×10 grid inside a fulfillment warehouse.
-* **[R]** Robots (Agents)
-* **[P]** Packages
-* **[Z]** Drop Zones
-* **[B]** Battery Chargers
-* **W** Impassable walls / racking
-
-### Task Difficulties:
-1. **task1_easy**: A basic 1-package delivery in an open warehouse area.
-2. **task2_medium**: A 3-package order fulfillment protocol. Structural hazards map the area, and the Robot's battery constantly decays. You must utilize the battery charger to survive.
-3. **task3_hard**: Multi-Robot deployment with priority loading sequences. Heavy battery drain and major penalties for robot-on-robot collisions.
+## Project Overview
+**GitHub:** https://github.com/Kal-MrNobody/shatterdome-logistics-env  
+**HF Space (Live API):** https://huggingface.co/spaces/KalX0o/shatterdome-logistics-env  
+**Tagline:** A deterministic warehouse simulation designed to train autonomous AI agents against real-world E-Commerce logistics constraints.
 
 ---
 
-## Action Space
-Your agent must issue one exact command per step:
-* `move_north`, `move_south`, `move_east`, `move_west`
-* `pickup_item` (picks up a package from current relative position)
-* `drop_item` (drops the package into a drop zone)
-* `recharge` (powers up battery if on a `[B]` cell)
-* `done` (terminates early)
+## The Problem
+Modern fulfillment centers deploying autonomous robots face a critical gap: 
+AI agents trained on toy environments fail catastrophically in production. 
+They drain batteries mid-route, damage fragile shipments, miss SLA deadlines, 
+and collide with other robots — costing operators millions per incident.
 
-## Observation Space (WMS HUD)
-Your agent is provided a rendered structural ASCII map (Warehouse Management System), current active orders, and battery/damage diagnostics on every step to calculate the optimal instruction.
+Shatterdome Logistics provides a safe, reproducible training ground where 
+agents learn to handle these failure modes before touching real hardware.
 
 ---
 
-## Technical Setup
+## Environment Design
 
-### 1. Requirements
-Ensure you are using Python 3.10+ and have the OpenEnv core installed.
+**Full OpenEnv spec compliance:** `step()`, `reset()`, `state()` endpoints 
+with typed Pydantic models extending OpenEnv base classes, wrapped in a 
+FastAPI server running in a Docker container on HuggingFace Spaces.
+
+**Physics engine beyond basic pathfinding:**
+
+- **SLA Countdown Engine:** Priority packages carry strict step deadlines. 
+  Miss the deadline and the order is cancelled with a grading penalty.
+- **Dynamic Battery-Weight Mechanics:** Packages spawn with `weight: heavy` 
+  attributes. Carrying heavy freight multiplies battery drain by 3.0x per step, 
+  forcing the agent to plan charger detours proactively.
+- **Fragility Collision Physics:** Packages flagged `fragile: true` shatter 
+  on any wall or robot collision while being carried — irreversible failure.
+- **WMS HUD Renderer:** A custom renderer outputs an intuitive ASCII 
+  Warehouse Management System display rather than raw coordinate arrays, 
+  optimized for LLM spatial reasoning.
+
+---
+
+## Tasks
+
+| ID | Difficulty | Description | Max Steps |
+|---|---|---|---|
+| task1_easy | Easy | Single package delivery, clear path, battery monitoring | 25 |
+| task2_medium | Medium | 3 packages, heavy weights, battery drain active, SLA deadline | 60 |
+| task3_hard | Hard | 2 robots, 4 packages (2 fragile+priority), collision avoidance | 100 |
+
+Grader scores are returned as floats in [0.0, 1.0] per task.
+
+---
+
+## Baseline Results
+
+| Task | Grader Score | Model |
+|---|---|---|
+| task1_easy | 1.000 | llama-3.3-70b-versatile |
+| task2_medium | 0.660 | llama-3.3-70b-versatile |
+| task3_hard | 0.450 | llama-3.3-70b-versatile |
+
+---
+
+## Setup & Quickstart
+
 ```bash
-pip install -r server/requirements.txt
-```
+# Clone and install
+git clone https://github.com/Kal-MrNobody/shatterdome-logistics-env
+cd shatterdome-logistics-env
+uv run uvicorn server.app:app --host 0.0.0.0 --port 7860
 
-### 2. Run the Environment Server
-```bash
-uvicorn server.app:app --host 0.0.0.0 --port 7860
-```
-This will start the WebSocket and HTTP endpoints required by the OpenEnv spec.
-
-### 3. Run the Inference Baseline
-In a new terminal, configure your keys and trigger the baseline solver:
-```bash
-export API_BASE_URL="https://api.groq.com/openai/v1"
-export MODEL_NAME="llama-3.3-70b-versatile"
-export HF_TOKEN="your-hf-token"
-
+# Run baseline (separate terminal)
+export HF_TOKEN="your_token"
+export ENV_URL="http://localhost:7860"
 python inference.py
+
+# Or via Docker
+docker build -t shatterdome-env .
+docker run -p 7860:7860 shatterdome-env
 ```
-This produces structured logs `[START]`, `[STEP]`, `[END]` conforming precisely to the hackathon validation requirements.
+
+Dependencies locked via `uv.lock` for full reproducibility.
