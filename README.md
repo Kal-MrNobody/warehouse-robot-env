@@ -65,9 +65,9 @@ Grader scores are returned as floats in [0.0, 1.0] per task.
 
 | Task | Grader Score | Model |
 |---|---|---|
-| task1_easy | 1.000 | llama-3.3-70b-versatile |
-| task2_medium | 0.660 | llama-3.3-70b-versatile |
-| task3_hard | 0.450 | llama-3.3-70b-versatile |
+| task1_easy | 0.010 | llama-3.3-70b-versatile |
+| task2_medium | 0.010 | llama-3.3-70b-versatile |
+| task3_hard | 0.010 | llama-3.3-70b-versatile |
 
 ---
 
